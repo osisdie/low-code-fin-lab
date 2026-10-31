@@ -1,0 +1,48 @@
+# --- secrets / env ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+# Apps Script 本機同步（clasp）會產生，內含專案 ID，不進版控
+.clasprc.json
+.clasp.json
+
+# --- Python / Node（選修附錄用）---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# --- screenshots / scratch ---
+.playwright-mcp/
+tmp/
+
+# --- 講師教案：實際版（含日期、場地、範本連結、名單）僅保留本機，永不公開 ---
+docs/instructor/
+# 去敏範本（口白稿、時間表、彩排清單）：開課後才公開。
+# 課後公開時只刪掉下一行；其餘保險規則保留。
+docs/instructor-template/
+# 範本資料夾的保險：名單、憑證、QR、產生檔一律不進版控
+docs/instructor-template/**/*名單*
+docs/instructor-template/**/*roster*
+docs/instructor-template/qr.html
+docs/instructor-template/**/*.pdf
+
+# --- 範例 vault：只收每日筆記／範本／關聯圖三個設定，其餘（版面、外掛、外掛裡的 key）不進版控 ---
+lab-assets/obsidian-vault/.obsidian/*
+!lab-assets/obsidian-vault/.obsidian/daily-notes.json
+!lab-assets/obsidian-vault/.obsidian/templates.json
+!lab-assets/obsidian-vault/.obsidian/graph.json
+
+# --- 個人化設定／真實帳密（範本可進版控，真值另存）---
+*.local.md
+accounts.local.md

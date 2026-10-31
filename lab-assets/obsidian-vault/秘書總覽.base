@@ -1,0 +1,15 @@
+filters:
+  and:
+    - file.inFolder("秘書")
+views:
+  - type: table
+    name: 報價單草稿
+    order:
+      - file.name
+      - 客戶
+      - 日期
+      - 合計
+      - 狀態
+    sort:
+      - property: 日期
+        direction: DESC

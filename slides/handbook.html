@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>財經日報與商務秘書手冊</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@700;900&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#faf7f0; --card:#fff; --ink:#20211c; --ink-soft:#5c5a50; --rule:#20211c; --line:#e4dfd2; --alt:#faf7f0;
+    --accent:#c8341e; --green:#2c7a4b; --amber:#b9760c; --purple:#6a3fb5;
+    --tint:#fff5ea; --tint-line:#f0c2b8; --tint-ink:#5a3b32;
+    --grn-tint:#f1f8f3; --amb-tint:#fdf7ea; --pur-tint:#f4f0fb; --pur-line:#d6c9f0;
+    --th-bg:#20211c; --th-fg:#faf7f0;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --paper:#1b1b18; --card:#25251f; --ink:#eeeadf; --ink-soft:#a9a596; --rule:#8d897c; --line:#3a3a32; --alt:#2b2b25;
+      --accent:#ff7a5c; --green:#6fcf97; --amber:#f2b84b; --purple:#b79cf0;
+      --tint:#2f2420; --tint-line:#6b3a30; --tint-ink:#f1d6cc;
+      --grn-tint:#1f2c24; --amb-tint:#2e2818; --pur-tint:#272236; --pur-line:#4a3d6e;
+      --th-bg:#3a3a32; --th-fg:#eeeadf;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#1b1b18; --card:#25251f; --ink:#eeeadf; --ink-soft:#a9a596; --rule:#8d897c; --line:#3a3a32; --alt:#2b2b25;
+    --accent:#ff7a5c; --green:#6fcf97; --amber:#f2b84b; --purple:#b79cf0;
+    --tint:#2f2420; --tint-line:#6b3a30; --tint-ink:#f1d6cc;
+    --grn-tint:#1f2c24; --amb-tint:#2e2818; --pur-tint:#272236; --pur-line:#4a3d6e;
+    --th-bg:#3a3a32; --th-fg:#eeeadf;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{background:var(--paper);color:var(--ink);font-family:'Noto Sans TC',sans-serif;line-height:1.85;font-size:17px;}
+  .sheet{max-width:1240px;margin:0 auto;padding:24px 30px 90px;}
+  a{color:var(--accent);}
+  code,.mono{font-family:'IBM Plex Mono',monospace;font-size:.9em;}
+  code{background:var(--alt);border:1px solid var(--line);border-radius:4px;padding:0 5px;}
+  .topline{display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;border-bottom:1px solid var(--rule);padding-bottom:6px;color:var(--ink-soft);}
+  .topline a{text-decoration:none;font-weight:700;}
+  .masthead{text-align:center;padding:18px 0 6px;border-bottom:3px double var(--rule);}
+  .masthead .brand{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.24em;color:var(--accent);text-transform:uppercase;}
+  .masthead h1{font-family:'Noto Serif TC',serif;font-weight:900;font-size:44px;letter-spacing:.02em;line-height:1.2;margin-top:6px;}
+  .masthead .sub{font-size:15px;color:var(--ink-soft);margin-top:8px;}
+  .ribbon{background:var(--accent);color:#fff;text-align:center;padding:10px 16px;margin:18px 0 0;border-radius:6px 6px 0 0;font-size:14.5px;font-weight:700;letter-spacing:.04em;}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .ribbon{color:#1b1b18;}}
+  :root[data-theme="dark"] .ribbon{color:#1b1b18;}
+  .stance{background:var(--tint);border:1px solid var(--tint-line);border-top:none;border-radius:0 0 6px 6px;padding:12px 18px;font-size:14px;color:var(--tint-ink);display:flex;gap:10px;align-items:flex-start;}
+  .stance b{color:var(--accent);} .stance .mark{font-size:18px;line-height:1.4;flex:none;}
+  .dateline{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px 14px;border-top:3px double var(--rule);border-bottom:3px double var(--rule);padding:8px 4px;margin:16px 0 8px;font-size:13px;letter-spacing:.05em;}
+  .dateline .mono{font-size:11px;color:var(--ink-soft);}
+  .hero{background:var(--tint);border:1px solid var(--tint-line);border-left:6px solid var(--accent);border-radius:8px;padding:22px 26px;margin:22px 0 8px;}
+  .hero h2{font-family:'Noto Serif TC',serif;font-size:24px;font-weight:900;margin-bottom:10px;line-height:1.35;}
+  .hero p{font-size:16.5px;} .hero b{color:var(--accent);}
+  .section-bar{display:flex;align-items:center;gap:14px;margin:52px 0 8px;}
+  .section-bar::after{content:'';flex:1;border-top:2px solid var(--rule);}
+  .section-bar .tag{background:var(--ink);color:var(--paper);font-family:'Noto Serif TC',serif;font-size:16px;font-weight:900;letter-spacing:.12em;padding:5px 16px;border-radius:3px;}
+  .section-bar .tag.red{background:var(--accent);color:#fff;} .section-bar .tag.green{background:var(--green);color:#fff;} .section-bar .tag.pur{background:var(--purple);color:#fff;}
+  .week-note{font-size:14.5px;color:var(--ink-soft);margin:2px 0 18px;}
+  .lead{font-size:16px;margin:10px 0 6px;}
+  .kicker{font-family:'IBM Plex Mono',monospace;font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:700;}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,310px),1fr));gap:18px;align-items:start;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 22px;box-shadow:0 1px 0 var(--line),0 6px 18px -14px rgba(0,0,0,.4);display:flex;flex-direction:column;}
+  .card h3{font-size:19px;font-weight:900;margin:0 0 2px;line-height:1.35;}
+  .card .eng{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink-soft);margin-bottom:12px;}
+  .card .analogy{background:var(--pur-tint);border-radius:8px;padding:10px 14px;font-size:15px;margin-bottom:12px;} .card .analogy b{color:var(--purple);}
+  .card .desc{font-size:14.5px;margin-bottom:12px;}
+  .card .impact{font-size:14px;color:var(--ink-soft);border-top:1px dashed var(--line);padding-top:10px;margin-top:auto;} .card .impact b{color:var(--ink);}
+  .card ul{padding-left:20px;font-size:14.5px;margin-bottom:10px;}
+  .tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
+  .pill{font-size:11.5px;font-weight:700;border-radius:999px;padding:2px 11px;letter-spacing:.02em;border:1px solid var(--line);}
+  .pill.now{background:var(--grn-tint);color:var(--green);} .pill.soon{background:var(--amb-tint);color:var(--amber);}
+  .pill.pur{background:var(--pur-tint);color:var(--purple);} .pill.red{background:var(--tint);color:var(--accent);}
+  .srcbox{margin-top:14px;} .srcbox .srclabel{font-size:11px;font-family:'IBM Plex Mono',monospace;letter-spacing:.12em;color:var(--ink-soft);text-transform:uppercase;margin-bottom:6px;}
+  .srcrow{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:8px;}
+  .srcbtn{display:flex;align-items:center;gap:9px;text-decoration:none;background:var(--card);border:1.5px solid var(--accent);border-radius:8px;padding:9px 13px;transition:background .15s;min-width:0;}
+  .srcbtn:hover{background:var(--accent);} .srcbtn:hover *{color:#fff !important;}
+  .srcbtn .ic{font-size:16px;flex:none;}
+  .srcbtn .txt{display:flex;flex-direction:column;line-height:1.35;min-width:0;}
+  .srcbtn .where{font-size:13.5px;font-weight:700;color:var(--ink);}
+  .srcbtn .url{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--accent);word-break:break-all;}
+  .tblwrap{overflow-x:auto;margin:14px 0;border:1px solid var(--line);border-radius:10px;}
+  .tbl{width:100%;min-width:640px;border-collapse:collapse;font-size:14px;background:var(--card);}
+  .tbl th,.tbl td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top;}
+  .tbl th{background:var(--th-bg);color:var(--th-fg);font-weight:700;font-size:13px;letter-spacing:.04em;}
+  .tbl tr:nth-child(even) td{background:var(--alt);}
+  .tbl tr.ours td{background:var(--grn-tint);font-weight:500;}
+  .tbl .hit{color:var(--green);font-weight:700;} .tbl .miss{color:var(--accent);font-weight:700;}
+  .callout{border-left:5px solid var(--amber);background:var(--amb-tint);border-radius:0 8px 8px 0;padding:14px 18px;margin:14px 0;font-size:15px;}
+  .callout.grn{border-color:var(--green);background:var(--grn-tint);} .callout.pur{border-color:var(--purple);background:var(--pur-tint);} .callout.red{border-color:var(--accent);background:var(--tint);}
+  .callout b{color:var(--ink);}
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0;}
+  .flow .step{background:var(--card);border:1.5px solid var(--ink);border-radius:8px;padding:8px 12px;font-size:14px;font-weight:700;}
+  .flow .step small{display:block;font-weight:400;font-size:12px;color:var(--ink-soft);}
+  .flow .arr{color:var(--ink-soft);font-weight:700;}
+  .timeline{border-left:3px solid var(--rule);margin:10px 0 0 8px;padding-left:18px;}
+  .timeline .row{position:relative;padding:8px 0 12px;}
+  .timeline .row::before{content:'';position:absolute;left:-26px;top:16px;width:13px;height:13px;border-radius:50%;background:var(--paper);border:3px solid var(--accent);}
+  .timeline .t{font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--ink-soft);}
+  .timeline .h{font-weight:900;font-size:17px;}
+  .timeline .d{font-size:14.5px;}
+  figure.shot{margin:0;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  figure.shot img{display:block;width:100%;height:auto;border-bottom:1px solid var(--line);}
+  figure.shot figcaption{padding:10px 14px;font-size:14px;}
+  .steps{counter-reset:s;list-style:none;padding:0;}
+  .steps li{counter-increment:s;position:relative;padding:6px 0 10px 44px;font-size:15.5px;}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:6px;width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;font-weight:900;display:flex;align-items:center;justify-content:center;font-size:14px;}
+  .footer{margin-top:60px;border-top:3px double var(--rule);padding-top:16px;font-size:12.5px;color:var(--ink-soft);text-align:center;line-height:1.9;}
+  @media print{ body{font-size:13px;} .sheet{max-width:none;padding:0;} .section-bar{margin-top:26px;} .card,.tbl,figure{page-break-inside:avoid;} }
+  @media (max-width:560px){ .sheet{padding:16px 16px 70px;} .masthead h1{font-size:28px;} .hero{padding:16px 16px;} .hero h2{font-size:20px;} .section-bar .tag{font-size:14px;padding:4px 10px;letter-spacing:.06em;} body{font-size:16px;} }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="topline">
+    <span>AI Agent 實戰工作坊</span>
+    <span>市場情報 ＋ 私人商務秘書</span>
+    <a href="obsidian.html">特別報導：Markdown 知識庫 →</a>
+  </div>
+
+  <header class="masthead">
+    <div class="brand">WORKSHOP HANDBOOK · FREE TOOLS ONLY</div>
+    <h1>打造你的 AI 數位分身：每日財經日報 ＋ 商務秘書</h1>
+    <div class="sub">不用會寫程式・全程免費資源・4 小時做出「每天自動到信箱的日報」「會累積的知識庫」「替你擬好的回信草稿」</div>
+  </header>
+
+  <div class="ribbon">今天的原則：數字來自資料表，AI 只負責整理文字；所有回信都只存成草稿，由你決定要不要寄。</div>
+  <div class="stance">
+    <span class="mark">⚠️</span>
+    <div><b>先講清楚：</b>免費額度會變動，以各家官網為準（本手冊查證日期 <span class="mono">2026-10-31</span>）。報告內容僅供學習，<b>不構成投資建議</b>；範例公司、客戶、金額皆為虛構。</div>
+  </div>
+
+  <div class="dateline">
+    <span>形式：半日 4 小時（13:30–17:30）・動手實作</span>
+    <span class="mono">HANDBOOK · 2026-10-31</span>
+    <span>對象：主管、業務、財會、非技術人員</span>
+  </div>
+
+  <div class="hero">
+    <h2>「全自動」做得到什麼？哪裡一定要留給人？</h2>
+    <p>做得到：<b>每天定時</b>抓數字、寫成日報寄到信箱、<b>自動存進知識庫</b>；客戶來信<b>自動判讀</b>、擬好回信與報價單。<br>
+    要留給人：<b>寄出前的確認</b>、報價最終金額、折扣與交期承諾、任何重要決策。AI 產出的回信<b>只會存成 Gmail 草稿</b>，不會自己寄出——這是目前最安全、也最符合實務的做法。</p>
+  </div>
+
+  <!-- 時間表 -->
+  <div class="section-bar" id="schedule"><span class="tag">今日時間表</span></div>
+  <p class="week-note">每一段都從上一段的「天花板」開始：先體驗方便，再親眼看到限制，才知道下一步為什麼值得做。</p>
+  <div class="timeline">
+    <div class="row"><div class="t">13:30 · 20 分</div><div class="h">Stage 0 概念與期望管理</div><div class="d">Agent 是什麼、五塊積木、全自動的真實邊界。寫下你的追蹤清單。</div></div>
+    <div class="row"><div class="t">13:50 · 30 分</div><div class="h">Stage 1 No-Code：ChatGPT Tasks 日報</div><div class="d">一句話建每日任務，並抽查 AI 給的數字準不準。</div></div>
+    <div class="row"><div class="t">14:20 · 60 分</div><div class="h">Stage 2 一鍵副本 Sheet → 每天一封「今日總覽」</div><div class="d">建立範本副本、貼上 Gemini key、按選單；三種版面任選，試算表「日報紀錄」每天記一列。</div></div>
+    <div class="row"><div class="t">15:20 · 10 分</div><div class="h">休息</div></div>
+    <div class="row"><div class="t">15:30 · 45 分</div><div class="h">Stage 3 Markdown 知識庫 × Obsidian（加分題）</div><div class="d">日報每天自動存成 .md，用 Obsidian 看儀表板、寫每日筆記、看關聯圖。</div></div>
+    <div class="row"><div class="t">16:15 · 55 分</div><div class="h">Stage 4 私人商務秘書</div><div class="d">貼上「AI秘書」標籤的信 → Gmail 回覆草稿＋報價單草稿存進知識庫。</div></div>
+    <div class="row"><div class="t">17:10 · 20 分</div><div class="h">收尾：安全、免費的真相、行動清單</div><div class="d">替代方案怎麼選、1 週／1 個月／3 個月要做什麼。</div></div>
+  </div>
+
+  <!-- 積木 -->
+  <div class="section-bar" id="blocks"><span class="tag">Agent 的五塊積木</span></div>
+  <p class="week-note">聊天機器人是「你問、它答」；Agent 是「自己會按時去做事」。今天的每一段，都是在換或加一塊積木。</p>
+  <div class="flow">
+    <span class="step">① 排程<small>每天固定時間啟動</small></span><span class="arr">→</span>
+    <span class="step">② 取資料<small>Google Finance／CoinGecko</small></span><span class="arr">→</span>
+    <span class="step">③ 整理<small>Gemini 只寫文字</small></span><span class="arr">→</span>
+    <span class="step">④ 推送<small>Gmail 信件／草稿</small></span><span class="arr">→</span>
+    <span class="step">⑤ 存檔累積<small>Markdown 知識庫</small></span>
+  </div>
+  <div class="tblwrap"><table class="tbl">
+    <tr><th>積木</th><th>Stage 1</th><th>Stage 2</th><th>Stage 3</th><th>Stage 4</th></tr>
+    <tr><td>① 排程</td><td>ChatGPT Tasks</td><td>Apps Script 觸發器（每天 08:00）</td><td>同 Stage 2</td><td>觸發器（每小時，可選）</td></tr>
+    <tr><td>② 取資料</td><td>AI 上網搜尋</td><td>Sheet 的 GOOGLEFINANCE＋公開端點</td><td>同 Stage 2</td><td>Gmail「AI秘書」標籤＋「報價表」分頁</td></tr>
+    <tr><td>③ 整理</td><td>ChatGPT</td><td>Gemini API（免費額度）</td><td>同 Stage 2</td><td>Gemini 判讀信件、擬回信（不碰數字）</td></tr>
+    <tr><td>④ 推送</td><td>app 通知</td><td>一封「今日總覽」（精簡／完整／表格）</td><td>同 Stage 2</td><td>Gmail <b>草稿</b>（不自動寄出）；待確認草稿列進隔天的今日總覽</td></tr>
+    <tr><td>⑤ 存檔累積</td><td>—</td><td>試算表「日報紀錄」</td><td>雲端硬碟 <code>FinLab-Vault/日報</code></td><td>試算表「秘書紀錄」＋<code>FinLab-Vault/秘書</code> 報價單草稿</td></tr>
+  </table></div>
+
+  <!-- 五個 Stage -->
+  <div class="section-bar" id="stages"><span class="tag red">五個 Stage：產出與天花板</span></div>
+  <div class="cards">
+    <div class="card">
+      <div class="tags"><span class="pill">20 分</span><span class="pill pur">純講解＋暖身</span></div>
+      <h3>Stage 0 · 概念與期望管理</h3>
+      <div class="eng">concepts · warm-up</div>
+      <div class="desc">弄懂五塊積木與「全自動」的邊界，用 ChatGPT 建第一個一句話的每日任務，寫下自己的追蹤清單。</div>
+      <div class="impact"><b>天花板：</b>只有一行字，資訊太少。<br><a href="../docs/student/student-stage-0-concepts.md">講義：Stage 0 →</a></div>
+    </div>
+    <div class="card">
+      <div class="tags"><span class="pill">30 分</span><span class="pill now">No-Code</span></div>
+      <h3>Stage 1 · ChatGPT Tasks 日報</h3>
+      <div class="eng">chatgpt tasks · free（上限約 3 個任務）</div>
+      <div class="desc">套用「龍蝦財經」風格做完整日報，並隨機抽 3 個數字到官網核對。</div>
+      <div class="impact"><b>天花板：</b>數字可能是舊的、格式每天不同、只在 app 內、只有 3 個任務。<br><a href="../docs/student/student-stage-1-lab.md">講義：Stage 1 →</a></div>
+    </div>
+    <div class="card">
+      <div class="tags"><span class="pill">60 分</span><span class="pill now">Low-Code・一鍵副本</span></div>
+      <h3>Stage 2 · 每天一封「今日總覽」</h3>
+      <div class="eng">sheets · apps script · gemini · gmail</div>
+      <div class="desc">點講師給的連結「建立副本」→ 選單「① 一鍵設定」貼 Gemini key →「② 立即寄一封今日總覽」→「🎨 選擇信件版面」（精簡／完整／表格）→「③ 開啟每日自動」。全程不用打開程式編輯器；試算表「日報紀錄」分頁每天記一列，不裝任何軟體也能看趨勢。</div>
+      <div class="impact"><b>天花板：</b>資料有延遲、美國假日無法自動判斷；表格只有數字，寫不下自己的觀察。<br><a href="../docs/student/student-stage-2-lab.md">講義：Stage 2 →</a></div>
+    </div>
+    <div class="card">
+      <div class="tags"><span class="pill">45 分</span><span class="pill pur">知識庫</span></div>
+      <h3>Stage 3 · Markdown 知識庫 × Obsidian（加分題）</h3>
+      <div class="eng">markdown vault · obsidian · bases</div>
+      <div class="desc">日報每天自動存成 <code>.md</code> 進雲端硬碟 <code>FinLab-Vault</code>，同步到電腦後用 Obsidian 打開：儀表板一眼看多天數字、每日筆記寫自己的觀察、關聯圖看標的連到哪幾天。</div>
+      <div class="impact"><b>天花板：</b>需要安裝 Google 雲端硬碟電腦版；手機端閱讀以 Gmail 為主。<br><a href="../docs/student/student-stage-3-obsidian-lab.md">講義：Stage 3 →</a>　<a href="obsidian.html">特別報導 →</a></div>
+    </div>
+    <div class="card">
+      <div class="tags"><span class="pill">55 分</span><span class="pill red">草稿・不自動寄出</span></div>
+      <h3>Stage 4 · 私人商務秘書</h3>
+      <div class="eng">gmail label → draft reply + quote.md</div>
+      <div class="desc">把客戶來信貼上「AI秘書」標籤 → AI 判讀意圖與需求 → 價格由「報價表」計算 → 存成 Gmail 回覆草稿，並把報價單草稿存進知識庫；不確定的地方標【需人工確認】。</div>
+      <div class="impact"><b>天花板：</b>免費 Gemini API 的資料可能被用於改進服務，<b>課堂只用虛構信件</b>；真實客戶資料需改用付費或企業方案。<br><a href="../docs/student/student-stage-4-secretary-lab.md">講義：Stage 4 →</a></div>
+    </div>
+    <div class="card">
+      <div class="tags"><span class="pill">20 分</span><span class="pill soon">收尾</span></div>
+      <h3>收尾 · 免費的真相與行動清單</h3>
+      <div class="eng">free tiers · alternatives · next steps</div>
+      <div class="desc">平台免費 ≠ 全部免費；比較其他方案；帶走 1 週／1 個月／3 個月的行動清單。</div>
+      <div class="impact"><a href="../docs/student/student-free-tools-menu.md">免費工具選單 →</a>　<a href="../docs/student/student-security-gmail-keys.md">安全說明 →</a></div>
+    </div>
+  </div>
+
+  <!-- 數字原則 -->
+  <div class="section-bar" id="numbers"><span class="tag green">為什麼數字要由資料表提供？</span></div>
+  <div class="cards">
+    <div class="card">
+      <h3>AI 搜尋：方便，但不一定準</h3>
+      <div class="desc">Stage 1 會親眼看到：AI 可能引用前一天、甚至更舊的數字，而且不會主動告訴你。每天格式也不一樣，沒辦法累積比較。</div>
+    </div>
+    <div class="card">
+      <h3>資料表給數字，AI 只寫文字</h3>
+      <div class="desc">Stage 2 起，數字來自 <b>Google Finance／CoinGecko／Yahoo Finance</b>，Gemini 只負責把它們寫成好讀的句子；信件下半部附「原始數據」，隨時能核對。</div>
+    </div>
+    <div class="card">
+      <h3>同一條規則，延伸到知識庫與報價</h3>
+      <div class="desc">存進 Obsidian 的 frontmatter 數字由程式直接寫入；報價單的單價、小計、稅、合計由「報價表」計算——<b>AI 從頭到尾不產生任何數字</b>。</div>
+    </div>
+  </div>
+
+  <!-- 替代方案 -->
+  <div class="section-bar" id="compare"><span class="tag">替代方案比較</span></div>
+  <p class="week-note">其他方案都可行，課後你也可以自己試。本課程的目標是：用<b>最少額外成本、最低技術門檻</b>，先把「每天自動產出＋個人知識庫＋回信草稿」跑起來。</p>
+  <div class="tblwrap"><table class="tbl">
+    <tr><th>方案</th><th>額外月費（約）</th><th>資料位置</th><th>非技術上手難度</th><th>排程＋串接能力</th><th>備註</th></tr>
+    <tr class="ours"><td><b>本課程：Sheets＋Apps Script＋Gemini 免費額度＋Markdown 資料夾／Obsidian</b></td><td><b>0</b></td><td>你的 Google 帳號＋你的電腦</td><td>低（一鍵副本＋選單）</td><td>中高</td><td>免費額度會變；Workspace 帳號可能被管理員限制</td></tr>
+    <tr><td>n8n（self-hosted Community）</td><td>0（軟體）＋主機費</td><td>自己控制</td><td>中高</td><td>很高</td><td>很強，但要自己架設與維護</td></tr>
+    <tr><td>n8n Cloud</td><td>約 US$20 起</td><td>雲端</td><td>中</td><td>很高</td><td>視覺化好，多一層費用與資料外流</td></tr>
+    <tr><td>ChatGPT Tasks</td><td>0～US$20（看方案）</td><td>雲端</td><td>很低</td><td>中</td><td>最簡單；免費版任務數有限，串接弱</td></tr>
+    <tr><td>Grok Automations</td><td>約 US$30 起</td><td>雲端</td><td>中</td><td>高</td><td>講師原版「龍蝦財經」用它；需額外訂閱</td></tr>
+    <tr><td>Meta Muse</td><td>0～US$20 起</td><td>雲端</td><td>低～中</td><td>中高</td><td>Agent 能力強，但有地區限制、資料在 Meta</td></tr>
+  </table></div>
+  <p class="week-note">價格約 2026 年 10 月水準，<b>以各家官網為準</b>，上課前請再確認。</p>
+
+  <!-- 安全 -->
+  <div class="section-bar" id="security"><span class="tag red">安全重點</span></div>
+  <div class="cards">
+    <div class="card">
+      <h3>授權，而不是給密碼</h3>
+      <div class="desc">Apps Script 以「你的 Google 帳號授權」寄信、建草稿，<b>從頭到尾不需要、也不要輸入 Gmail 密碼</b>。不用了到 Google 帳戶「第三方存取」移除即可。</div>
+    </div>
+    <div class="card">
+      <h3>「Google 尚未驗證這個應用程式」</h3>
+      <div class="desc">自己副本裡的程式第一次授權會出現這個警告：因為程式是你自己的、沒送 Google 審查。確認是講師給的範本後，點「進階 → 前往（不安全）」繼續。秘書功能要讀信、建草稿，權限畫面會更明顯，<b>請看清楚再同意</b>。</div>
+    </div>
+    <div class="card">
+      <h3>公司帳號可能被擋</h3>
+      <div class="desc">Google Workspace（公司）帳號的管理員常會限制 Apps Script、Gmail 權限或對外連線。<b>課堂請用個人 Gmail</b>；回公司要導入，先問 IT。</div>
+    </div>
+    <div class="card">
+      <h3>免費 Gemini API 與客戶資料</h3>
+      <div class="desc">免費方案送出的內容<b>可能被用於改進 Google 的服務</b>（以官網條款為準）。<b>課堂只用虛構信件</b>；真實客戶個資、合約、報價不要送進免費方案。</div>
+    </div>
+    <div class="card">
+      <h3>key 只放「指令碼屬性」</h3>
+      <div class="desc">一鍵設定會把 Gemini key 存進指令碼屬性，不出現在表格、分享表格也看不到。不要貼進群組、截圖或程式碼；外洩就到 AI Studio 刪除重建。</div>
+    </div>
+  </div>
+  <div class="srcbox"><div class="srclabel">講義 · 延伸閱讀</div>
+    <div class="srcrow">
+      <a class="srcbtn" href="../docs/student/student-security-gmail-keys.md"><span class="ic">🔒</span><span class="txt"><span class="where">保護你的 Gmail 與 API key</span><span class="url">docs/student/student-security-gmail-keys.md</span></span></a>
+      <a class="srcbtn" href="../docs/student/student-free-tools-menu.md"><span class="ic">🧰</span><span class="txt"><span class="where">免費工具選單與「免費的真相」</span><span class="url">docs/student/student-free-tools-menu.md</span></span></a>
+      <a class="srcbtn" href="../lab-assets/apps-script/README.md"><span class="ic">⚙️</span><span class="txt"><span class="where">Apps Script 步驟（一鍵副本／手動）</span><span class="url">lab-assets/apps-script/README.md</span></span></a>
+      <a class="srcbtn" href="obsidian.html"><span class="ic">🗂️</span><span class="txt"><span class="where">特別報導：Markdown 知識庫 × Obsidian</span><span class="url">slides/obsidian.html</span></span></a>
+    </div>
+  </div>
+
+  <!-- 官網 -->
+  <div class="section-bar" id="links"><span class="tag">官網 · 自己查</span></div>
+  <div class="srcrow">
+    <a class="srcbtn" href="https://chatgpt.com" target="_blank" rel="noopener"><span class="ic">💬</span><span class="txt"><span class="where">ChatGPT</span><span class="url">chatgpt.com</span></span></a>
+    <a class="srcbtn" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener"><span class="ic">🔑</span><span class="txt"><span class="where">Google AI Studio（Gemini key）</span><span class="url">aistudio.google.com/apikey</span></span></a>
+    <a class="srcbtn" href="https://script.google.com" target="_blank" rel="noopener"><span class="ic">📜</span><span class="txt"><span class="where">Google Apps Script</span><span class="url">script.google.com</span></span></a>
+    <a class="srcbtn" href="https://obsidian.md" target="_blank" rel="noopener"><span class="ic">🔮</span><span class="txt"><span class="where">Obsidian</span><span class="url">obsidian.md</span></span></a>
+    <a class="srcbtn" href="https://www.google.com/drive/download/" target="_blank" rel="noopener"><span class="ic">☁️</span><span class="txt"><span class="where">Google 雲端硬碟電腦版</span><span class="url">google.com/drive/download</span></span></a>
+  </div>
+
+  <div class="footer">
+    本手冊內容僅供學習，<b>不構成投資建議</b>；範例公司、客戶、金額皆為虛構。<br>
+    免費額度與價格以各家官網為準・查證日期 <span class="mono">2026-10-31</span>・教材 CC BY 4.0／程式碼 MIT
+  </div>
+
+</div>
+</body>
+</html>

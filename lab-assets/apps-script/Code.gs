@@ -224,6 +224,11 @@ function buildBriefingContext_() {
   let summary;
   try {
     summary = callGemini_(buildPrompt_(dateStr, data));
+    const odd = checkSummaryNumbers_(summary, data);
+    if (odd.length) {
+      summary = '⚠️ 自動檢查：摘要裡有數字在原始數據找不到（' + odd.slice(0, 5).join('、') + (odd.length > 5 ? '…' : '') +
+        '），可能是 AI 抄錯或自己換算，請以下方「原始數據」為準。\n\n' + summary;
+    }
   } catch (err) {
     summary = '（AI 摘要暫時失敗，以下僅列出原始數據。原因：' + err.message + '）';
   }
@@ -348,6 +353,34 @@ function buildPrompt_(dateStr, data) {
   return PROMPT_TEMPLATE
     .replace('{date}', function () { return dateStr; })
     .replace('{data_json}', function () { return JSON.stringify(data, null, 2); });
+}
+
+/**
+ * 找出摘要裡「原始數據沒有」的數字（AI 偶爾會抄錯或自己算）。
+ * 允許的數字：各項目的現價、前一收盤、漲跌幅（含四捨五入到摘要寫的位數）、名稱與代碼裡的數字、日期。
+ */
+function checkSummaryNumbers_(summary, data) {
+  const known = [];
+  const addFromText = function (text) {
+    (String(text === null || text === undefined ? '' : text).match(/\d+(?:\.\d+)?/g) || [])
+      .forEach(function (n) { known.push(Number(n)); });
+  };
+  addFromText(data.date);
+  data.items.forEach(function (it) {
+    addFromText(it.name);
+    addFromText(it.symbol);
+    [it.price, it.prevClose, it.changePct].forEach(function (v) {
+      if (typeof v === 'number' && isFinite(v)) known.push(Math.abs(v));
+    });
+  });
+  const odd = [];
+  (String(summary).match(/\d[\d,]*(?:\.\d+)?/g) || []).forEach(function (raw) {
+    const n = Number(raw.replace(/,/g, ''));
+    const decimals = (raw.split('.')[1] || '').length;
+    const ok = known.some(function (v) { return v === n || roundTo_(v, decimals) === n; });
+    if (!ok && odd.indexOf(raw) === -1) odd.push(raw);
+  });
+  return odd;
 }
 
 /** opts.json = true 時要求 Gemini 回傳 JSON（秘書判讀信件用）；失敗時丟出中文說明 */

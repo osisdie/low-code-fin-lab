@@ -29,7 +29,7 @@
 - 部分匯率（`CURRENCY:` 開頭）可能不提供 `closeyest`／`changepct`，D、E 欄會是空白，這是正常的：程式有 C、D 兩欄就自己算漲跌幅；都沒有就在信裡寫「查無資料」，不會亂補。
 - 匯率在程式裡保留 4 位小數（例如 JPY/TWD 0.2134），其他項目保留 2 位。
 
-## 建議的起始列（代碼需在你的 Sheet 實測，改名後以能出數字為準）
+## 建議的起始列（代碼需在你的 Sheet 實測，改名後以能出數字為準；查證日期 2026-11-24）
 | 名稱 | 代碼 |
 |------|------|
 | USD/TWD | `CURRENCY:USDTWD` |
@@ -42,9 +42,14 @@
 | MSFT | `MSFT` |
 | 台積電 2330 | `TPE:2330` |
 | 聯發科 2454 | `TPE:2454` |
-| 台股加權指數 | `INDEXTPE:TAIEX`（若顯示 #N/A，改追蹤 `TPE:0050` 作為替代並在名稱標註） |
+| 台股加權指數 | `TPE:IX0001` |
 
-> ⚠️ 以上代碼為依 Google Finance 命名慣例整理，**尚未逐一實測**；課堂前請講師實測並更新此表。
+> ⚠️ 以上代碼為依 Google Finance 命名慣例整理，**尚未在課堂用的範本逐一實測**；課堂前請講師實測並更新此表。
+
+### 代碼查證紀錄（2026-11-24）
+- **台股加權指數**：舊代碼 `INDEXTPE:TAIEX` 在彩排時顯示 `#N/A`，Google 財經網站上也已找不到這個代碼。Google 財經的加權指數頁面是 [`IX0001:TPE`](https://www.google.com/finance/quote/IX0001:TPE)，試算表寫成 `TPE:IX0001`（多個中文教學也用這個寫法）。指數類通常沒有 `closeyest`／`changepct` 以外的財務欄位，這是正常的。
+- **匯率**：`CURRENCY:USDTWD`、`CURRENCY:JPYTWD`、`CURRENCY:EURUSD` 是一般通用的寫法，Google 財經網站上也有 [USD-TWD](https://www.google.com/finance/quote/USD-TWD)、[JPY-TWD](https://www.google.com/finance/quote/JPY-TWD)、[EUR-USD](https://www.google.com/finance/quote/EUR-USD) 頁面；但彩排時這三列的 C 欄都是 `#N/A`（原因未明，可能是暫時性問題，網路上也有「等幾小時就恢復」的經驗）。請注意代碼中間**不能有斜線**（`USD/TWD` 一定 `#N/A`），也不要多空白。
+- **程式備援**：`Code.gs` 讀到某列 C 欄是 `#N/A` 時，匯率會自動改抓 Yahoo Finance 的 `USDTWD=X`／`JPYTWD=X`／`EURUSD=X`，加權指數改抓 `^TWII`（其他代碼可加在 `Code.gs` 的 `YAHOO_FALLBACK`）。信裡的「來源」欄會寫「Google Finance 查無資料，改用備援」，方便核對。Yahoo 端點是非官方的，備援也失敗時一樣寫「查無資料」，不會亂補數字。
 > 黃金、美債殖利率、BTC 不在 Sheet 內：由 `Code.gs` 另外抓取（Google Finance 沒有現貨黃金）。
 > `GOOGLEFINANCE` 資料可能延遲約 20 分鐘，且只能在 Sheet 儲存格中使用，不能在 Apps Script 內直接呼叫。
 

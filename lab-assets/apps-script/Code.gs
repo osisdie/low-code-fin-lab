@@ -3,14 +3,15 @@
  *
  * 流程：讀「數據」分頁（GOOGLEFINANCE 公式算出來的數字）
  *       → 補抓 BTC（CoinGecko）與黃金／美債殖利率（Yahoo Finance 公開圖表端點）
- *       → 交給 Gemini 整理成繁體中文日報（數字只來自資料，LLM 不負責查數字）
+ *       → 交給 OpenRouter 的免費 AI 模型整理成繁體中文日報（數字只來自資料，LLM 不負責查數字）
  *       → 加上秘書待辦（待確認草稿、需人工的信、昨天處理過的信），合併成一封「今日總覽」
  *       → 依你選的版面（Templates.gs）用你自己的 Gmail 寄給自己
  *       → 數字記一列到「日報紀錄」分頁；同一份日報另存成 Markdown 到雲端硬碟「FinLab-Vault/日報」
  *
  * 安全：
  *   - 寄信用 MailApp，以「你自己的 Google 帳號」寄出，完全不需要密碼。
- *   - Gemini API key 放在「專案設定 → 指令碼屬性」(GEMINI_API_KEY)，不要寫進這份程式碼。
+ *   - OpenRouter API key 放在「專案設定 → 指令碼屬性」(OPENROUTER_API_KEY)，不要寫進這份程式碼。
+ *     程式不會把 key 印到紀錄、對話框或信件裡。
  *
  * 第一次使用：重新整理試算表 → 上方選單「📰 我的 AI 助理」→ ① 一鍵設定 → ② 立即寄一封今日總覽 → ③ 開啟每日自動寄送
  *   （不用打開這個編輯器；手動執行時依序跑 setupWizard → sendDailyReport → setupDailyTrigger 也可以）
@@ -20,8 +21,14 @@
 
 // ============ 可調整的設定 ============
 const SHEET_NAME = '數據';          // 放 GOOGLEFINANCE 公式的分頁名稱
-const DEFAULT_MODEL = 'gemini-3.5-flash-lite'; // 可在指令碼屬性 GEMINI_MODEL 覆寫（免費額度與型號以官網為準，查證日期 2026-11-24）
-const GEMINI_RETRY_MS = 20000;      // 遇到 429（額度暫時用完）等多久再試一次
+// AI 模型：免費模型常常換，名單以 https://openrouter.ai/models?max_price=0 為準（查證日期 2026-11-24）
+// 先用 AI_MODEL_PRIMARY；失敗（錯誤、空白回覆、429 額度用完）就改用 AI_MODEL_FALLBACK 再試一次；兩個都失敗就只寄原始數據
+// 想換模型：直接改這兩行，或在指令碼屬性設 OPENROUTER_MODEL／OPENROUTER_FALLBACK_MODEL 覆寫（不用改程式）
+const AI_MODEL_PRIMARY = 'openrouter/free';            // OpenRouter 自動挑一個當下可用的免費模型
+const AI_MODEL_FALLBACK = 'google/gemma-4-31b-it:free'; // 備用：指定一個中文表現穩定的免費模型
+const AI_KEY_PROP = 'OPENROUTER_API_KEY';              // key 存在指令碼屬性的名稱
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const OPENROUTER_KEYS_PAGE = 'https://openrouter.ai/settings/keys';
 const TRIGGER_HOUR = 8;             // 每天幾點寄出（依 appsscript.json 的時區：Asia/Taipei）
 const REPORT_TIMEZONE = 'Asia/Taipei';
 const DAILY_LOG_SHEET = '日報紀錄';   // 每天一列數字，不用裝任何軟體就能看趨勢（自動建立）
@@ -45,7 +52,14 @@ const YAHOO_ITEMS = [
   { name: '美國10年期公債殖利率 ^TNX（%）', symbol: '^TNX', key: '美債10年' },
 ];
 
-// Gemini 提示詞（與 lab-assets/prompts/03-stage2-gemini-summary.txt 同步；修改請兩邊一起改）
+// 「數據」分頁某列 GOOGLEFINANCE 查無資料（#N/A）時，改用 Yahoo Finance 補抓（失敗就維持「查無資料」）
+// 匯率（CURRENCY:USDTWD 這種）會自動換成 Yahoo 的 USDTWD=X，不用列在這裡
+const YAHOO_FALLBACK = {
+  'TPE:IX0001': '^TWII',     // 台股加權指數
+  'INDEXTPE:TAIEX': '^TWII', // 舊範本的代碼（Google Finance 已查不到）
+};
+
+// 日報提示詞（與 lab-assets/prompts/03-stage2-ai-summary.txt 同步；修改請兩邊一起改）
 const PROMPT_TEMPLATE = [
   '你是「財經日報整理員」。下面的【今日數據】是從資料表自動抓到的真實數字（JSON）。',
   '你的工作只有「把這些數字整理成易讀的繁體中文日報」，不是查資料。',
@@ -92,7 +106,7 @@ function onOpen() {
     .addToUi();
 }
 
-/** 一鍵設定：收 Gemini key → 測試 → 建立知識庫資料夾與起始檔案 */
+/** 一鍵設定：收 OpenRouter key → 測試 → 建立知識庫資料夾與起始檔案 */
 function setupWizard() {
   // 一次確認所有權限：授權畫面上沒勾到的，這裡會再跳出來請你補勾
   ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
@@ -102,19 +116,31 @@ function setupWizard() {
 function setupWizardSteps_() {
   const ui = SpreadsheetApp.getUi();
   const props = PropertiesService.getScriptProperties();
-  const hasKey = !!props.getProperty('GEMINI_API_KEY');
-  const res = ui.prompt('一鍵設定：貼上 Gemini API key',
+  const hasKey = !!props.getProperty(AI_KEY_PROP);
+  const res = ui.prompt('一鍵設定：貼上 OpenRouter API key',
     (hasKey ? '已經設定過 key。要換新的才貼；留空直接按「確定」就沿用舊的。\n\n' : '') +
-    '到 https://aistudio.google.com/apikey 免費建立 key，貼在下面。\n' +
+    '用 Google 帳號登入 https://openrouter.ai ，到 Keys 頁面（' + OPENROUTER_KEYS_PAGE + '）按「Create」建立 key，複製後貼在下面。\n' +
+    '免費模型不用綁信用卡。key 是 sk-or- 開頭的一長串字。\n' +
     'key 只會存進這份檔案的「指令碼屬性」，不會出現在表格裡，分享表格也看不到。',
     ui.ButtonSet.OK_CANCEL);
   if (res.getSelectedButton() !== ui.Button.OK) return;
-  const key = res.getResponseText().trim();
-  if (key) props.setProperty('GEMINI_API_KEY', key);
-  else if (!hasKey) { ui.alert('沒有貼上 key，設定先暫停。準備好再點一次「① 一鍵設定」。'); return; }
+  const key = res.getResponseText().replace(/\s+/g, '');
+  if (key && !looksLikeOpenRouterKey_(key)) {
+    // 不要把貼上的內容顯示出來（可能是別的密碼）
+    ui.alert('這看起來不是 OpenRouter key',
+      'OpenRouter key 是「sk-or-」開頭的一長串字。請回到 ' + OPENROUTER_KEYS_PAGE + ' 重新複製，再點一次「① 一鍵設定」。\n' +
+      '剛剛貼的內容沒有存起來。', ui.ButtonSet.OK);
+    return;
+  }
+  if (key) {
+    props.setProperty(AI_KEY_PROP, key);
+    // 舊版（Gemini）留下的設定用不到了，順手清掉
+    props.deleteProperty('GEMINI_API_KEY');
+    props.deleteProperty('GEMINI_MODEL');
+  } else if (!hasKey) { ui.alert('沒有貼上 key，設定先暫停。準備好再點一次「① 一鍵設定」。'); return; }
 
   try {
-    callGemini_('請只回答：OK');
+    callAi_('請只回答：OK');
   } catch (err) {
     ui.alert('key 測試失敗', err.message + '\n\n處理好之後，再點一次「① 一鍵設定」。', ui.ButtonSet.OK);
     return;
@@ -126,13 +152,13 @@ function setupWizardSteps_() {
   } catch (err) {
     logError_('一鍵設定：建立知識庫資料夾', err);
     ui.alert('知識庫資料夾建立失敗',
-      'Gemini key 已經測試成功並存好了，但在雲端硬碟建立「' + VAULT_ROOT_NAME + '」時出錯：\n' + err.message + '\n\n' +
+      'OpenRouter key 已經測試成功並存好了，但在雲端硬碟建立「' + VAULT_ROOT_NAME + '」時出錯：\n' + err.message + '\n\n' +
       '最常見的原因是授權時沒有勾選雲端硬碟權限。請再點一次「① 一鍵設定」（key 留空就會沿用），授權畫面全部勾選後按「允許」。',
       ui.ButtonSet.OK);
     return;
   }
   ui.alert('設定完成 ✅',
-    'Gemini key 測試成功。\n' +
+    'OpenRouter key 測試成功。\n' +
     '已在你的雲端硬碟建立資料夾「' + root.getName() + '」（Obsidian 知識庫，Stage 3 會用到）。\n\n' +
     '下一步：選單「② 立即寄一封今日總覽」，到信箱看看。',
     ui.ButtonSet.OK);
@@ -146,7 +172,7 @@ function menuSendNow() {
   });
 }
 
-/** 寄出三種版面的樣張（只呼叫一次 Gemini），讓你比較後再用「選擇信件版面」決定 */
+/** 寄出三種版面的樣張（AI 摘要只產生一次），讓你比較後再用「選擇信件版面」決定 */
 function menuSendSamples() {
   ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, DAILY_SCOPES);
   runMenu_('寄出版面樣張', function () {
@@ -224,14 +250,15 @@ function buildBriefingContext_() {
 
   let summary;
   try {
-    summary = callGemini_(buildPrompt_(dateStr, data));
+    summary = callAi_(buildPrompt_(dateStr, data));
     const odd = checkSummaryNumbers_(summary, data);
     if (odd.length) {
       summary = '⚠️ 自動檢查：摘要裡有數字在原始數據找不到（' + odd.slice(0, 5).join('、') + (odd.length > 5 ? '…' : '') +
         '），可能是 AI 抄錯或自己換算，請以下方「原始數據」為準。\n\n' + summary;
     }
   } catch (err) {
-    summary = '（AI 摘要暫時失敗，以下僅列出原始數據。原因：' + err.message + '）';
+    console.warn('AI 摘要失敗，改寄原始數據：' + err.message);
+    summary = '（這次沒有 AI 摘要，以下僅列出原始數據，數字一樣可以用。原因：' + err.message + '）';
   }
 
   let secretary = null;
@@ -316,8 +343,25 @@ function readSheetItems_() {
       let changePct = numOrNull_(r[4]);
       // E 欄空白（部分匯率沒有 changepct）但有現價與前一收盤時，自己算；都沒有就維持「查無資料」
       if (changePct === null && price !== null && prevClose) changePct = round2_((r[2] / r[3] - 1) * 100);
-      return { name: r[0], symbol: r[1], key: noteKey_(r[0]), price: price, prevClose: prevClose, changePct: changePct, source: 'Google Finance' };
+      const item = { name: r[0], symbol: r[1], key: noteKey_(r[0]), price: price, prevClose: prevClose, changePct: changePct, source: 'Google Finance' };
+      return price === null ? sheetFallback_(item, digits) : item;
     });
+}
+
+/** Google Finance 查無資料時，若有對應的 Yahoo 代碼就補抓；補不到就原樣回傳（信裡會寫「查無資料」） */
+function sheetFallback_(item, digits) {
+  const sym = String(item.symbol).trim().toUpperCase();
+  const fx = sym.match(/^CURRENCY:([A-Z]{3})([A-Z]{3})$/);
+  const ySymbol = fx ? fx[1] + fx[2] + '=X' : YAHOO_FALLBACK[sym];
+  if (!ySymbol) return item;
+  try {
+    const q = fetchYahooQuote_(ySymbol, digits);
+    return { name: item.name, symbol: item.symbol, key: item.key, price: q.price, prevClose: q.prevClose, changePct: q.changePct,
+      source: 'Yahoo Finance ' + ySymbol + '（Google Finance 查無資料，改用備援）' };
+  } catch (err) {
+    item.source = 'Google Finance（查無資料；Yahoo 備援也失敗：' + err.message + '）';
+    return item;
+  }
 }
 
 /** BTC：CoinGecko 公開端點，免 API key */
@@ -335,20 +379,27 @@ function fetchBitcoin_() {
 function fetchYahooItems_() {
   return YAHOO_ITEMS.map(function (it) {
     try {
-      const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(it.symbol) + '?range=5d&interval=1d';
-      const res = UrlFetchApp.fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const closes = JSON.parse(res.getContentText()).chart.result[0].indicators.quote[0].close
-        .filter(function (v) { return v !== null; });
-      const price = closes[closes.length - 1];
-      const prev = closes[closes.length - 2];
-      return { name: it.name, symbol: it.symbol, key: it.key, price: round2_(price), prevClose: round2_(prev), changePct: round2_((price / prev - 1) * 100), source: 'Yahoo Finance' };
+      const q = fetchYahooQuote_(it.symbol, 2);
+      return { name: it.name, symbol: it.symbol, key: it.key, price: q.price, prevClose: q.prevClose, changePct: q.changePct, source: 'Yahoo Finance' };
     } catch (err) {
       return { name: it.name, symbol: it.symbol, key: it.key, price: null, prevClose: null, changePct: null, source: 'Yahoo Finance（失敗：' + err.message + '）' };
     }
   });
 }
 
-// ============ Gemini ============
+/** Yahoo Finance 最近兩個日收盤 → 現價、前一收盤、漲跌幅%（失敗會丟出錯誤，由呼叫端決定怎麼處理） */
+function fetchYahooQuote_(symbol, digits) {
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + '?range=5d&interval=1d';
+  const res = UrlFetchApp.fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const closes = JSON.parse(res.getContentText()).chart.result[0].indicators.quote[0].close
+    .filter(function (v) { return v !== null; });
+  if (closes.length < 2) throw new Error('資料不足');
+  const price = closes[closes.length - 1];
+  const prev = closes[closes.length - 2];
+  return { price: roundTo_(price, digits), prevClose: roundTo_(prev, digits), changePct: round2_((price / prev - 1) * 100) };
+}
+
+// ============ AI 摘要（OpenRouter）============
 function buildPrompt_(dateStr, data) {
   // 用函式當替換值：資料裡的 $ 符號不會被當成特殊字元
   return PROMPT_TEMPLATE
@@ -385,78 +436,145 @@ function checkSummaryNumbers_(summary, data) {
   return odd;
 }
 
-/** opts.json = true 時要求 Gemini 回傳 JSON（秘書判讀信件用）；失敗時丟出中文說明 */
-function callGemini_(prompt, opts) {
+/**
+ * 呼叫 AI，回傳文字。先用主要模型，失敗就換備用模型再試一次；兩個都失敗時丟出中文說明（呼叫端決定怎麼退場）。
+ * opts.json = true 時要求回傳 JSON（秘書判讀信件用）。
+ * 安全：key 只放在 Authorization 標頭，錯誤訊息與紀錄都不會包含 key。
+ */
+function callAi_(prompt, opts) {
   opts = opts || {};
-  const key = getProp_('GEMINI_API_KEY');
-  if (!key) throw new Error('尚未設定 Gemini key，請先點選單「① 一鍵設定」。');
-  const model = getProp_('GEMINI_MODEL') || DEFAULT_MODEL;
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent';
-  const payload = { contents: [{ parts: [{ text: prompt }] }] };
-  if (opts.json) payload.generationConfig = { responseMimeType: 'application/json' };
+  const key = getProp_(AI_KEY_PROP);
+  if (!key) throw new Error('尚未設定 OpenRouter key，請先點選單「① 一鍵設定」。');
+  const models = aiModels_();
+  const reasons = [];
+  for (let i = 0; i < models.length; i++) {
+    try {
+      return callOpenRouterOnce_(key, models[i], prompt, opts);
+    } catch (err) {
+      reasons.push((i === 0 ? '主要模型' : '備用模型') + '「' + models[i] + '」：' + err.message);
+      if (err.stopRetry) break; // 例如 key 無效：換模型也沒用
+      if (i < models.length - 1) console.warn('AI 模型「' + models[i] + '」失敗，改用備用模型：' + err.message);
+    }
+  }
+  throw new Error('AI 暫時無法使用。' + reasons.join('；'));
+}
+
+/** 要依序嘗試的模型：指令碼屬性可覆寫；重複的只試一次 */
+function aiModels_() {
+  const list = [getProp_('OPENROUTER_MODEL') || AI_MODEL_PRIMARY, getProp_('OPENROUTER_FALLBACK_MODEL') || AI_MODEL_FALLBACK];
+  return list.filter(function (m, i) { return m && list.indexOf(m) === i; });
+}
+
+/** OpenRouter key 大致長這樣：sk-or- 開頭、沒有空白（只做寬鬆檢查，真正能不能用由測試呼叫決定） */
+function looksLikeOpenRouterKey_(key) {
+  return /^sk-or-[A-Za-z0-9_-]{10,}$/.test(String(key));
+}
+
+/** 呼叫一次指定模型；任何失敗都丟出學員看得懂的中文錯誤 */
+function callOpenRouterOnce_(key, model, prompt, opts) {
+  const payload = { model: model, messages: [{ role: 'user', content: prompt }] };
+  if (opts.json) payload.response_format = { type: 'json_object' };
 
   let res;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    res = UrlFetchApp.fetch(url, {
+  try {
+    res = UrlFetchApp.fetch(OPENROUTER_URL, {
       method: 'post',
       contentType: 'application/json',
-      headers: { 'x-goog-api-key': key },
+      headers: {
+        Authorization: 'Bearer ' + key,
+        // 選填的來源標示；hidden 代表不要出現在 OpenRouter 公開排行榜
+        'HTTP-Referer': 'https://github.com/osisdie/low-code-fin-lab',
+        'X-OpenRouter-Title': 'low-code-fin-lab',
+        'X-OpenRouter-App-Visibility': 'hidden',
+      },
       payload: JSON.stringify(payload),
       muteHttpExceptions: true,
     });
-    if (res.getResponseCode() !== 429 || attempt === 2) break;
-    Utilities.sleep(GEMINI_RETRY_MS); // 每分鐘額度用完時，等一下再試一次
+  } catch (err) {
+    throw new Error('連不上 OpenRouter（' + err.message + '），請稍後再試。');
   }
-  if (res.getResponseCode() !== 200) throw new Error(geminiHttpError_(res.getResponseCode(), res.getContentText(), model));
+
+  const code = res.getResponseCode();
+  const body = res.getContentText();
+  if (code < 200 || code >= 300) throw openRouterHttpError_(code, body, model);
 
   let j;
   try {
-    j = JSON.parse(res.getContentText());
+    j = JSON.parse(body);
   } catch (err) {
-    throw new Error('Gemini 回傳的內容看不懂，請稍後再試。');
+    throw new Error('回傳的內容看不懂，請稍後再試。');
   }
-  if (j.promptFeedback && j.promptFeedback.blockReason) {
-    throw new Error('Gemini 拒絕處理這段內容（原因：' + j.promptFeedback.blockReason + '）。請換一封信或調整內容再試。');
-  }
-  const cand = j.candidates && j.candidates[0];
-  if (!cand) throw new Error('Gemini 沒有回傳任何內容，請稍後再試。');
-  // 只取一般文字，略過「思考」片段；有多段就接起來
-  const text = ((cand.content && cand.content.parts) || [])
-    .filter(function (p) { return !p.thought && typeof p.text === 'string'; })
-    .map(function (p) { return p.text; })
-    .join('');
-  const reason = cand.finishReason || '';
-  if (reason && reason !== 'STOP' && reason !== 'MAX_TOKENS') {
-    throw new Error('Gemini 中途停止（原因：' + reason + '，通常是內容被安全機制擋下）。請換一封信或調整內容再試。');
-  }
-  if (!text.trim()) throw new Error('Gemini 回傳空白（結束原因：' + (reason || '未知') + '），請稍後再試。');
-  if (reason === 'MAX_TOKENS') console.warn('Gemini 回覆太長被截斷');
+  // 有時 HTTP 200 但內容是錯誤（例如上游模型中途失敗）
+  if (j.error) throw openRouterHttpError_(Number(j.error.code) || 0, body, model);
+
+  const choice = j.choices && j.choices[0];
+  if (!choice) throw new Error('沒有回傳任何內容，請稍後再試。');
+  const reason = choice.finish_reason || '';
+  if (reason === 'content_filter') throw new Error('內容被安全機制擋下，請換一封信或調整內容再試。');
+  if (reason === 'error') throw new Error('模型中途出錯，請稍後再試。');
+  // 部分推理模型會把思考過程包在 <think>…</think>，只留最後的答案
+  const text = String((choice.message && choice.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  if (!text) throw new Error('回傳空白（結束原因：' + (reason || '未知') + '），請稍後再試。');
+  if (reason === 'length') console.warn('AI 回覆太長被截斷');
+  if (j.model) console.log('這次的 AI 回覆來自模型：' + j.model);
   return text;
 }
 
-/** 把 Gemini 的 HTTP 錯誤翻成學員看得懂的話 */
-function geminiHttpError_(code, body, model) {
-  const raw = String(body || '');
-  if (code === 429) {
-    return 'Gemini 免費額度暫時用完（429）。等一分鐘再試；如果一整天都失敗，代表今天的額度用完了，' +
-      '約台灣時間下午 3～4 點重置後再試。';
-  }
-  if (/API_KEY_INVALID|API key not valid/i.test(raw) || code === 401) {
-    return 'Gemini key 無效：請確認 key 有完整貼上（沒有多空白、沒有少字），或到 AI Studio 重新建立一把。';
-  }
-  if (code === 404) {
-    return '找不到模型「' + model + '」：這個型號可能已停用，或你的帳號不能使用。' +
-      '若你在指令碼屬性設過 GEMINI_MODEL，請刪掉或改成官網列出的型號（不填就用預設 ' + DEFAULT_MODEL + '）。';
-  }
-  if (code === 403) {
-    return 'Gemini 拒絕存取（403）：key 可能沒有權限或所在地區不支援，請到 AI Studio 確認 key 的狀態。';
-  }
-  return 'Gemini 錯誤（HTTP ' + code + '）：' + raw.slice(0, 200);
+/**
+ * 429 是不是「每天的免費模型額度」用完（整個帳號共用，換模型沒用）。
+ * OpenRouter 這種錯誤的訊息會寫 free-models-per-day；每分鐘限制（free-models-per-min）或上游模型忙碌的 429 不算，仍會換備用模型。
+ */
+function isFreeDailyLimit_(body) {
+  return /free-models-per-day|free model requests per day/i.test(String(body || ''));
 }
 
-/** 單獨測試 Gemini key 是否可用（不會印出 key） */
-function testGeminiKey() {
-  Logger.log(callGemini_('請只回答：OK'));
+/** 把 OpenRouter 的 HTTP 錯誤翻成學員看得懂的話（回傳 Error；body 只取 OpenRouter 的錯誤說明，不含 key） */
+function openRouterHttpError_(code, body, model) {
+  let detail = '';
+  try {
+    const e = JSON.parse(body).error;
+    detail = String((e && e.message) || '').slice(0, 160);
+  } catch (err) {
+    detail = String(body || '').slice(0, 160);
+  }
+  const tail = detail ? '（原始訊息：' + detail + '）' : '';
+  let msg;
+  let stopRetry = false;
+  if (code === 401) {
+    msg = 'OpenRouter key 無效（401）：請確認 key 有完整貼上（sk-or- 開頭、沒有少字），或到 ' + OPENROUTER_KEYS_PAGE +
+      ' 重新建立一把，再點「① 一鍵設定」貼上新的。';
+    stopRetry = true;
+  } else if (code === 429 && isFreeDailyLimit_(body)) {
+    // 每天的免費額度是整個帳號共用，換備用模型也一樣會被擋，直接停
+    msg = '今天的免費額度用完了（429）。免費模型每天約 50 次（以官網為準），整個帳號共用，' +
+      '台灣時間早上 8 點（UTC 00:00）重置，明天再試。';
+    stopRetry = true;
+  } else if (code === 429) {
+    msg = '免費額度暫時用完（429）。免費模型每分鐘約 20 次、每天約 50 次（以官網為準），' +
+      '每天台灣時間早上 8 點（UTC 00:00）重置；等一分鐘再試，整天都失敗就明天再試。';
+  } else if (code === 402) {
+    msg = 'OpenRouter 帳戶點數不足（402）：免費模型本來不用點數，請到 openrouter.ai 的 Credits 頁確認餘額不是負數。';
+    stopRetry = true;
+  } else if (code === 404) {
+    msg = '找不到可用的模型「' + model + '」（404）：免費模型可能已下架，或你的 OpenRouter 隱私設定排除了所有提供者。' +
+      '可到程式最上方改 AI_MODEL_PRIMARY／AI_MODEL_FALLBACK，或到 https://openrouter.ai/settings/privacy 檢查免費模型的設定。';
+  } else if (code === 403) {
+    msg = 'OpenRouter 拒絕這次請求（403）：可能是內容被安全機制擋下，或 key 設了用量上限。';
+  } else if (code === 400) {
+    msg = '請求格式有問題（400），可能是這個模型不支援某個選項。';
+  } else if (code >= 500 || code === 408) {
+    msg = 'OpenRouter 或模型暫時忙碌（HTTP ' + code + '），請稍後再試。';
+  } else {
+    msg = 'OpenRouter 錯誤（HTTP ' + code + '）。';
+  }
+  const err = new Error(msg + tail);
+  err.stopRetry = stopRetry;
+  return err;
+}
+
+/** 單獨測試 OpenRouter key 是否可用（不會印出 key） */
+function testAiKey() {
+  Logger.log(callAi_('請只回答：OK'));
 }
 
 // ============ 排程 ============

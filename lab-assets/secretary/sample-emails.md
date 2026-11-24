@@ -1,6 +1,6 @@
 # 秘書練習用：3 封虛構客戶來信
 
-> 公司、人名、信箱都是虛構的。**課堂請只用這 3 封練習，不要把真實客戶信件送進 Gemini 免費方案**（原因見 `docs/student/student-security-gmail-keys.md`）。
+> 公司、人名、信箱都是虛構的。**課堂請只用這 3 封練習，不要把真實客戶信件送進免費 AI 模型**（原因見 `docs/student/student-security-gmail-keys.md`）。
 
 ## 怎麼用
 1. 用你自己的 Gmail **寄給自己**：主旨、內文照下面複製。

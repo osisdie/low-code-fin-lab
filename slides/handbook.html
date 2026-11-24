@@ -151,7 +151,7 @@
   <div class="timeline">
     <div class="row"><div class="t">13:30 · 20 分</div><div class="h">Stage 0 概念與期望管理</div><div class="d">Agent 是什麼、五塊積木、全自動的真實邊界。寫下你的追蹤清單。</div></div>
     <div class="row"><div class="t">13:50 · 30 分</div><div class="h">Stage 1 No-Code：ChatGPT Tasks 日報</div><div class="d">一句話建每日任務，並抽查 AI 給的數字準不準。</div></div>
-    <div class="row"><div class="t">14:20 · 60 分</div><div class="h">Stage 2 一鍵副本 Sheet → 每天一封「今日總覽」</div><div class="d">建立範本副本、貼上 Gemini key、按選單；三種版面任選，試算表「日報紀錄」每天記一列。</div></div>
+    <div class="row"><div class="t">14:20 · 60 分</div><div class="h">Stage 2 一鍵副本 Sheet → 每天一封「今日總覽」</div><div class="d">建立範本副本、貼上 OpenRouter key（免費、不用綁卡）、按選單；三種版面任選，試算表「日報紀錄」每天記一列。</div></div>
     <div class="row"><div class="t">15:20 · 10 分</div><div class="h">休息</div></div>
     <div class="row"><div class="t">15:30 · 45 分</div><div class="h">Stage 3 Markdown 知識庫 × Obsidian（加分題）</div><div class="d">日報每天自動存成 .md，用 Obsidian 看儀表板、寫每日筆記、看關聯圖。</div></div>
     <div class="row"><div class="t">16:15 · 55 分</div><div class="h">Stage 4 私人商務秘書</div><div class="d">貼上「AI秘書」標籤的信 → Gmail 回覆草稿＋報價單草稿存進知識庫。</div></div>
@@ -164,7 +164,7 @@
   <div class="flow">
     <span class="step">① 排程<small>每天固定時間啟動</small></span><span class="arr">→</span>
     <span class="step">② 取資料<small>Google Finance／CoinGecko</small></span><span class="arr">→</span>
-    <span class="step">③ 整理<small>Gemini 只寫文字</small></span><span class="arr">→</span>
+    <span class="step">③ 整理<small>AI 只寫文字</small></span><span class="arr">→</span>
     <span class="step">④ 推送<small>Gmail 信件／草稿</small></span><span class="arr">→</span>
     <span class="step">⑤ 存檔累積<small>Markdown 知識庫</small></span>
   </div>
@@ -172,7 +172,7 @@
     <tr><th>積木</th><th>Stage 1</th><th>Stage 2</th><th>Stage 3</th><th>Stage 4</th></tr>
     <tr><td>① 排程</td><td>ChatGPT Tasks</td><td>Apps Script 觸發器（每天 08:00）</td><td>同 Stage 2</td><td>觸發器（每小時，可選）</td></tr>
     <tr><td>② 取資料</td><td>AI 上網搜尋</td><td>Sheet 的 GOOGLEFINANCE＋公開端點</td><td>同 Stage 2</td><td>Gmail「AI秘書」標籤＋「報價表」分頁</td></tr>
-    <tr><td>③ 整理</td><td>ChatGPT</td><td>Gemini API（免費額度）</td><td>同 Stage 2</td><td>Gemini 判讀信件、擬回信（不碰數字）</td></tr>
+    <tr><td>③ 整理</td><td>ChatGPT</td><td>OpenRouter 免費模型</td><td>同 Stage 2</td><td>AI 判讀信件、擬回信（不碰數字）</td></tr>
     <tr><td>④ 推送</td><td>app 通知</td><td>一封「今日總覽」（精簡／完整／表格）</td><td>同 Stage 2</td><td>Gmail <b>草稿</b>（不自動寄出）；待確認草稿列進隔天的今日總覽</td></tr>
     <tr><td>⑤ 存檔累積</td><td>—</td><td>試算表「日報紀錄」</td><td>雲端硬碟 <code>FinLab-Vault/日報</code></td><td>試算表「秘書紀錄」＋<code>FinLab-Vault/秘書</code> 報價單草稿</td></tr>
   </table></div>
@@ -197,8 +197,8 @@
     <div class="card">
       <div class="tags"><span class="pill">60 分</span><span class="pill now">Low-Code・一鍵副本</span></div>
       <h3>Stage 2 · 每天一封「今日總覽」</h3>
-      <div class="eng">sheets · apps script · gemini · gmail</div>
-      <div class="desc">點講師給的連結「建立副本」→ 選單「① 一鍵設定」貼 Gemini key →「② 立即寄一封今日總覽」→「🎨 選擇信件版面」（精簡／完整／表格）→「③ 開啟每日自動」。全程不用打開程式編輯器；試算表「日報紀錄」分頁每天記一列，不裝任何軟體也能看趨勢。</div>
+      <div class="eng">sheets · apps script · openrouter · gmail</div>
+      <div class="desc">點講師給的連結「建立副本」→ 選單「① 一鍵設定」貼 OpenRouter key →「② 立即寄一封今日總覽」→「🎨 選擇信件版面」（精簡／完整／表格）→「③ 開啟每日自動」。全程不用打開程式編輯器；試算表「日報紀錄」分頁每天記一列，不裝任何軟體也能看趨勢。</div>
       <div class="impact"><b>天花板：</b>資料有延遲、美國假日無法自動判斷；表格只有數字，寫不下自己的觀察。<br><a href="../docs/student/student-stage-2-lab.md">講義：Stage 2 →</a></div>
     </div>
     <div class="card">
@@ -213,7 +213,7 @@
       <h3>Stage 4 · 私人商務秘書</h3>
       <div class="eng">gmail label → draft reply + quote.md</div>
       <div class="desc">把客戶來信貼上「AI秘書」標籤 → AI 判讀意圖與需求 → 價格由「報價表」計算 → 存成 Gmail 回覆草稿，並把報價單草稿存進知識庫；不確定的地方標【需人工確認】。</div>
-      <div class="impact"><b>天花板：</b>免費 Gemini API 的資料可能被用於改進服務，<b>課堂只用虛構信件</b>；真實客戶資料需改用付費或企業方案。<br><a href="../docs/student/student-stage-4-secretary-lab.md">講義：Stage 4 →</a></div>
+      <div class="impact"><b>天花板：</b>免費 AI 模型的部分提供者可能保留或用輸入資料訓練，<b>課堂只用虛構信件</b>；真實客戶資料需改用付費或企業方案。<br><a href="../docs/student/student-stage-4-secretary-lab.md">講義：Stage 4 →</a></div>
     </div>
     <div class="card">
       <div class="tags"><span class="pill">20 分</span><span class="pill soon">收尾</span></div>
@@ -233,7 +233,7 @@
     </div>
     <div class="card">
       <h3>資料表給數字，AI 只寫文字</h3>
-      <div class="desc">Stage 2 起，數字來自 <b>Google Finance／CoinGecko／Yahoo Finance</b>，Gemini 只負責把它們寫成好讀的句子；信件下半部附「原始數據」，隨時能核對。</div>
+      <div class="desc">Stage 2 起，數字來自 <b>Google Finance／CoinGecko／Yahoo Finance</b>，AI（OpenRouter 免費模型）只負責把它們寫成好讀的句子；信件下半部附「原始數據」，隨時能核對。</div>
     </div>
     <div class="card">
       <h3>同一條規則，延伸到知識庫與報價</h3>
@@ -246,7 +246,7 @@
   <p class="week-note">其他方案都可行，課後你也可以自己試。本課程的目標是：用<b>最少額外成本、最低技術門檻</b>，先把「每天自動產出＋個人知識庫＋回信草稿」跑起來。</p>
   <div class="tblwrap"><table class="tbl">
     <tr><th>方案</th><th>額外月費（約）</th><th>資料位置</th><th>非技術上手難度</th><th>排程＋串接能力</th><th>備註</th></tr>
-    <tr class="ours"><td><b>本課程：Sheets＋Apps Script＋Gemini 免費額度＋Markdown 資料夾／Obsidian</b></td><td><b>0</b></td><td>你的 Google 帳號＋你的電腦</td><td>低（一鍵副本＋選單）</td><td>中高</td><td>免費額度會變；Workspace 帳號可能被管理員限制</td></tr>
+    <tr class="ours"><td><b>本課程：Sheets＋Apps Script＋OpenRouter 免費模型＋Markdown 資料夾／Obsidian</b></td><td><b>0</b></td><td>你的 Google 帳號＋你的電腦</td><td>低（一鍵副本＋選單）</td><td>中高</td><td>免費額度會變；Workspace 帳號可能被管理員限制</td></tr>
     <tr><td>n8n（self-hosted Community）</td><td>0（軟體）＋主機費</td><td>自己控制</td><td>中高</td><td>很高</td><td>很強，但要自己架設與維護</td></tr>
     <tr><td>n8n Cloud</td><td>約 US$20 起</td><td>雲端</td><td>中</td><td>很高</td><td>視覺化好，多一層費用與資料外流</td></tr>
     <tr><td>ChatGPT Tasks</td><td>0～US$20（看方案）</td><td>雲端</td><td>很低</td><td>中</td><td>最簡單；免費版任務數有限，串接弱</td></tr>
@@ -271,12 +271,12 @@
       <div class="desc">Google Workspace（公司）帳號的管理員常會限制 Apps Script、Gmail 權限或對外連線。<b>課堂請用個人 Gmail</b>；回公司要導入，先問 IT。</div>
     </div>
     <div class="card">
-      <h3>免費 Gemini API 與客戶資料</h3>
-      <div class="desc">免費方案送出的內容<b>可能被用於改進 Google 的服務</b>（以官網條款為準）。<b>課堂只用虛構信件</b>；真實客戶個資、合約、報價不要送進免費方案。</div>
+      <h3>免費 AI 模型與客戶資料</h3>
+      <div class="desc">送到免費模型的內容，<b>部分提供者可能保留或拿來訓練模型</b>（依各提供者條款，以官網為準）。<b>課堂只用虛構信件</b>；真實客戶個資、合約、報價不要送進免費方案。</div>
     </div>
     <div class="card">
       <h3>key 只放「指令碼屬性」</h3>
-      <div class="desc">一鍵設定會把 Gemini key 存進指令碼屬性，不出現在表格、分享表格也看不到。不要貼進群組、截圖或程式碼；外洩就到 AI Studio 刪除重建。</div>
+      <div class="desc">一鍵設定會把 OpenRouter key 存進指令碼屬性，不出現在表格、分享表格也看不到。不要貼進群組、截圖或程式碼；外洩就到 OpenRouter 的 Keys 頁面刪除重建。</div>
     </div>
   </div>
   <div class="srcbox"><div class="srclabel">講義 · 延伸閱讀</div>
@@ -292,7 +292,7 @@
   <div class="section-bar" id="links"><span class="tag">官網 · 自己查</span></div>
   <div class="srcrow">
     <a class="srcbtn" href="https://chatgpt.com" target="_blank" rel="noopener"><span class="ic">💬</span><span class="txt"><span class="where">ChatGPT</span><span class="url">chatgpt.com</span></span></a>
-    <a class="srcbtn" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener"><span class="ic">🔑</span><span class="txt"><span class="where">Google AI Studio（Gemini key）</span><span class="url">aistudio.google.com/apikey</span></span></a>
+    <a class="srcbtn" href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener"><span class="ic">🔑</span><span class="txt"><span class="where">OpenRouter（免費 AI key）</span><span class="url">openrouter.ai/settings/keys</span></span></a>
     <a class="srcbtn" href="https://script.google.com" target="_blank" rel="noopener"><span class="ic">📜</span><span class="txt"><span class="where">Google Apps Script</span><span class="url">script.google.com</span></span></a>
     <a class="srcbtn" href="https://obsidian.md" target="_blank" rel="noopener"><span class="ic">🔮</span><span class="txt"><span class="where">Obsidian</span><span class="url">obsidian.md</span></span></a>
     <a class="srcbtn" href="https://www.google.com/drive/download/" target="_blank" rel="noopener"><span class="ic">☁️</span><span class="txt"><span class="where">Google 雲端硬碟電腦版</span><span class="url">google.com/drive/download</span></span></a>

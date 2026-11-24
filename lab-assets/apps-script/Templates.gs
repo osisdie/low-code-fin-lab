@@ -4,7 +4,7 @@
  * 換版面：試算表選單「🎨 選擇信件版面」（存在指令碼屬性 REPORT_TEMPLATE）
  * 想比較：選單「🎨 寄三種版面樣張給我」
  *
- * 這裡只負責「排版」，不產生任何數字：數字來自 ctx.data（資料表），文字摘要來自 Gemini。
+ * 這裡只負責「排版」，不產生任何數字：數字來自 ctx.data（資料表），文字摘要來自 AI（OpenRouter 免費模型）。
  * 想自己做第四種版面：在 REPORT_TEMPLATES 加一項，並在 renderBriefing_ 對應一個 xxxHtml_ 函式。
  */
 

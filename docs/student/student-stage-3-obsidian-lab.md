@@ -102,7 +102,7 @@ USD_TWD: 32.52
 
 ## 選修：在 vault 裡問 AI「這兩週匯率怎麼變？」
 主線不需要。想玩的人二選一（都以官網為準）：
-- **免費**：社群外掛 **Copilot**，在設定裡填 Gemini API key（可以跟 Stage 2 用同一把，或另外建一把）。第一次安裝社群外掛要先關閉「限制模式（Restricted mode）」。
+- **免費**：社群外掛 **Copilot**，在設定裡選 OpenRouter、填 OpenRouter key（可以跟 Stage 2 用同一把，或另外建一把；額度共用），模型選名稱結尾是 `:free` 的免費模型。第一次安裝社群外掛要先關閉「限制模式（Restricted mode）」。
 - **已有 Claude 訂閱**：外掛 **Claude Panel**，並在 vault 根目錄放一份「只答 vault、找不到就說沒有」的規則檔（做法參考姊妹課程 low-code-rag-lab 的 `obsidian/` 資料夾）。
 
 > ⚠️ 外掛裡填的 key 會存在 `FinLab-Vault/.obsidian/plugins/` 底下。**不要把整個 vault 分享給別人**，要分享就只挑 `.md` 檔。

@@ -69,9 +69,10 @@ const PROMPT_TEMPLATE = [
   '2. 漲跌用 📈（上漲）／📉（下跌），標示百分比；百分比已提供，不要自己重算。',
   '3. 每個項目用一句話描述變化即可；若數據裡沒有原因，就不要編造原因。',
   '4. 美股欄位若 usMarketOpen 為 false，要明確寫「美股休市（沿用 X 收盤數字）」，X 直接用【今日數據】的 usLastCloseDate，不要自己推算日期。',
-  '5. 重點總數控制在 8～10 項，優先呈現漲跌幅較大的。',
+  '5. 【匯率】段落要把 fxPairs 列出的每一組匯率都寫出來，一組一行，不可省略；其他段落的重點總數控制在 8～10 項，優先呈現漲跌幅較大的。',
   '6. 禁止任何投資建議、買賣建議、預測或個人觀點。',
   '7. 全程使用自然、專業的繁體中文。',
+  '8. source 欄位只是資料來源說明，不要把裡面的文字或數字寫進摘要。',
   '',
   '【輸出格式】（純文字，不要用 Markdown 表格）',
   '📰 每日財經摘要 — {date}',
@@ -247,10 +248,12 @@ function buildBriefingContext_() {
     usLastCloseDate: lastUsCloseDate_(now), // 美股休市時摘要要寫的「沿用哪天收盤」，由程式算，不讓 AI 推算
     items: [].concat(readSheetItems_(), fetchYahooItems_(), fetchBitcoin_()),
   };
+  // 摘要的【匯率】段落要逐一列出這幾組（免費模型常常只挑一組寫）
+  data.fxPairs = data.items.filter(isFxItem_).map(function (it) { return it.name; });
 
   let summary;
   try {
-    summary = callAi_(buildPrompt_(dateStr, data));
+    summary = ensureFxLines_(callAi_(buildPrompt_(dateStr, data)), data);
     const odd = checkSummaryNumbers_(summary, data);
     if (odd.length) {
       summary = '⚠️ 自動檢查：摘要裡有數字在原始數據找不到（' + odd.slice(0, 5).join('、') + (odd.length > 5 ? '…' : '') +
@@ -359,20 +362,60 @@ function sheetFallback_(item, digits) {
     return { name: item.name, symbol: item.symbol, key: item.key, price: q.price, prevClose: q.prevClose, changePct: q.changePct,
       source: 'Yahoo Finance ' + ySymbol + '（Google Finance 查無資料，改用備援）' };
   } catch (err) {
-    item.source = 'Google Finance（查無資料；Yahoo 備援也失敗：' + err.message + '）';
+    console.warn('Yahoo 備援 ' + ySymbol + ' 失敗：' + err.message);
+    item.source = 'Google Finance（查無資料；Yahoo 備援也暫時無法取得）';
     return item;
   }
 }
 
-/** BTC：CoinGecko 公開端點，免 API key */
+/**
+ * BTC：先用 CoinGecko 公開端點（免 API key）；被限流（429）或暫時故障就等幾秒重試，
+ * 還是不行就改用 Yahoo Finance 的 BTC-USD；都失敗才寫「查無資料」。
+ * 錯誤碼只記到執行紀錄，不放進給 AI 的資料（不然摘要會把「429」當成數字寫進去）。
+ */
+const BTC_NAME = 'Bitcoin BTC/USD（24h）';
+const COINGECKO_RETRIES = 2;        // CoinGecko 失敗後再試幾次
+const COINGECKO_RETRY_WAIT_MS = 3000; // 每次重試前等幾毫秒（3 秒）
+
 function fetchBitcoin_() {
+  const base = { name: BTC_NAME, symbol: 'BTC', key: 'BTC', prevClose: null };
   try {
-    const url = 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true';
-    const j = JSON.parse(UrlFetchApp.fetch(url, { muteHttpExceptions: false }).getContentText());
-    return [{ name: 'Bitcoin BTC/USD（24h）', symbol: 'BTC', key: 'BTC', price: j.bitcoin.usd, prevClose: null, changePct: round2_(j.bitcoin.usd_24h_change), source: 'CoinGecko' }];
+    const cg = fetchCoinGeckoBtc_();
+    return [Object.assign({}, base, { price: cg.price, changePct: cg.changePct, source: 'CoinGecko' })];
   } catch (err) {
-    return [{ name: 'Bitcoin BTC/USD（24h）', symbol: 'BTC', key: 'BTC', price: null, prevClose: null, changePct: null, source: 'CoinGecko（失敗：' + err.message + '）' }];
+    console.warn('CoinGecko 取不到比特幣，改用 Yahoo BTC-USD：' + err.message);
   }
+  try {
+    const q = fetchYahooQuote_('BTC-USD', 2);
+    return [Object.assign({}, base, { price: q.price, prevClose: q.prevClose, changePct: q.changePct,
+      source: 'Yahoo Finance BTC-USD（CoinGecko 暫時無法取得，改用備援；漲跌為與前一日收盤相比）' })];
+  } catch (err) {
+    console.warn('Yahoo BTC-USD 也失敗：' + err.message);
+  }
+  return [Object.assign({}, base, { price: null, changePct: null, source: '暫時無法取得（CoinGecko 與 Yahoo 備援都沒有回應）' })];
+}
+
+/** CoinGecko 現價與 24 小時漲跌；429 或 5xx 會等一下再試，最後仍失敗就丟出錯誤 */
+function fetchCoinGeckoBtc_() {
+  const url = 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true';
+  let lastErr = null;
+  for (let attempt = 0; attempt <= COINGECKO_RETRIES; attempt++) {
+    if (attempt > 0) Utilities.sleep(COINGECKO_RETRY_WAIT_MS * attempt);
+    try {
+      const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      const code = res.getResponseCode();
+      if (code === 200) {
+        const j = JSON.parse(res.getContentText());
+        if (!j.bitcoin || typeof j.bitcoin.usd !== 'number') throw new Error('CoinGecko 回傳格式不對');
+        return { price: j.bitcoin.usd, changePct: round2_(j.bitcoin.usd_24h_change) };
+      }
+      lastErr = new Error('CoinGecko HTTP ' + code);
+      if (code !== 429 && code < 500) break; // 4xx（429 以外）重試也沒用
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('CoinGecko 沒有回應');
 }
 
 /** 黃金、美債殖利率：Yahoo Finance 公開圖表端點（非官方，可能變動；失敗時回傳「查無資料」） */
@@ -382,7 +425,8 @@ function fetchYahooItems_() {
       const q = fetchYahooQuote_(it.symbol, 2);
       return { name: it.name, symbol: it.symbol, key: it.key, price: q.price, prevClose: q.prevClose, changePct: q.changePct, source: 'Yahoo Finance' };
     } catch (err) {
-      return { name: it.name, symbol: it.symbol, key: it.key, price: null, prevClose: null, changePct: null, source: 'Yahoo Finance（失敗：' + err.message + '）' };
+      console.warn('Yahoo ' + it.symbol + ' 失敗：' + err.message);
+      return { name: it.name, symbol: it.symbol, key: it.key, price: null, prevClose: null, changePct: null, source: 'Yahoo Finance（暫時無法取得）' };
     }
   });
 }
@@ -405,6 +449,35 @@ function buildPrompt_(dateStr, data) {
   return PROMPT_TEMPLATE
     .replace('{date}', function () { return dateStr; })
     .replace('{data_json}', function () { return JSON.stringify(data, null, 2); });
+}
+
+/** 「數據」分頁裡的匯率列（代碼是 CURRENCY:USDTWD 這種） */
+function isFxItem_(it) {
+  return /^CURRENCY:/i.test(String(it.symbol));
+}
+
+/** 一組匯率的固定寫法（程式產生，數字直接取自原始數據） */
+function fxLine_(it) {
+  if (it.price === null) return it.name + '：查無資料';
+  const pct = it.changePct === null ? '' : '（' + (it.changePct >= 0 ? '📈 +' : '📉 ') + it.changePct + '%）';
+  return it.name + '：' + it.price + pct;
+}
+
+/**
+ * 摘要的【匯率】段落漏寫了哪組匯率，就由程式依原始數據補上一行（不再交給 AI）。
+ * 有【匯率】標題就補在標題下面；連標題都沒有就在摘要最前面加一段。
+ */
+function ensureFxLines_(summary, data) {
+  const text = String(summary);
+  const fx = data.items.filter(isFxItem_);
+  const missing = fx.filter(function (it) { return text.indexOf(it.name) === -1; });
+  if (!missing.length) return text;
+  const lines = missing.map(fxLine_);
+  const i = text.indexOf('【匯率】');
+  if (i === -1) return '【匯率】\n' + lines.join('\n') + '\n\n' + text;
+  const eol = text.indexOf('\n', i);
+  if (eol === -1) return text + '\n' + lines.join('\n');
+  return text.slice(0, eol + 1) + lines.join('\n') + '\n' + text.slice(eol + 1);
 }
 
 /**

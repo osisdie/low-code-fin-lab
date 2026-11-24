@@ -27,6 +27,13 @@ const MAX_THREADS_PER_RUN = 5;       // 一次最多處理幾封，避免用光�
 const MAX_BODY_CHARS = 4000;         // 信件內文太長時只送前面這麼多字給 AI
 const ADD_INTENT_LABEL = true;        // 依判讀結果多貼一個標籤，例如「AI秘書/詢價」（不想要就改成 false）
 const INTENTS = ['詢價', '改期', '客訴', '其他'];
+const COMPLAINT_NEEDS_HUMAN = true;  // 客訴一定要人看：草稿照常建立，但另外貼「AI秘書/需人工」標籤（不想要就改成 false）
+// AI 判成「其他」或回傳不在清單裡的意圖時，用關鍵字補判（依序比對，先對到的算數）
+const INTENT_KEYWORDS = [
+  { intent: '客訴', re: /客訴|抱怨|投訴|退費|退款|退還|賠償|不滿|complain/i },
+  { intent: '詢價', re: /詢價|報價|價格|價錢|多少錢|費用多少|估價|quot(e|ation)|pricing|price/i },
+  { intent: '改期', re: /改期|改時間|改到|延期|延後|順延|reschedul/i },
+];
 const SECRETARY_SCOPES = [           // 秘書需要的權限（建立觸發器前先確認）
   'https://www.googleapis.com/auth/spreadsheets.currentonly',
   'https://www.googleapis.com/auth/script.external_request',
@@ -39,10 +46,25 @@ const SECRETARY_SCOPES = [           // 秘書需要的權限（建立觸發器�
 const TRIAGE_PROMPT = [
   '你是「商務秘書」，負責判讀一封客戶來信。只根據信件內容回答，不要猜測信裡沒寫的事。',
   '',
+  '【意圖（intent）只能是下面四個字串之一，一字不差】',
+  '- 詢價：想知道價格、費用、報價，或想請我們提供某項服務／商品（例如「想請貴公司協助」「請提供報價」「多少錢」「有沒有折扣」）。只要信裡有要報價或問價格，就算同時有其他內容，也選「詢價」。',
+  '- 改期：要更改、延後、取消已經約好的會議、拍攝或交期時間。',
+  '- 客訴：抱怨服務或產品出問題、表達不滿、要求退費、賠償或補救。',
+  '- 其他：以上都不是（例如單純感謝、通知、廣告）。',
+  '',
+  '【判讀範例】',
+  '信：「想請貴公司報價：官網設計 1 式、主機代管 1 年，月底前要。」',
+  '→ {"intent":"詢價","items":[{"name":"官網設計","qty":1},{"name":"主機代管（年）","qty":1}],"deadline":"月底前","needs_human":[]}',
+  '信：「原訂週三的拍攝想改到下週一，可以嗎？」',
+  '→ {"intent":"改期","items":[],"deadline":"下週一","needs_human":["新的拍攝日期"]}',
+  '信：「上週交的影片有錯字，客戶很不滿意，請盡快重做，否則要求退費。」',
+  '→ {"intent":"客訴","items":[],"deadline":"","needs_human":["退費要求","重做時程"]}',
+  '（範例裡的品項名稱只是示意；實際只能用下面【可報價品項】清單裡的名稱）',
+  '',
   '【可報價品項】（只能從這份清單選，名稱要完全一樣；清單沒有的寫進 unmatched）',
   '{item_names}',
   '',
-  '【請輸出 JSON】',
+  '【請只輸出一個 JSON 物件，不要加任何說明文字或 ``` 符號】',
   '{',
   '  "intent": "詢價" 或 "改期" 或 "客訴" 或 "其他",',
   '  "customer": "寄件人姓名或公司，信裡沒有就空字串",',
@@ -59,6 +81,7 @@ const TRIAGE_PROMPT = [
   '2. 不要輸出任何價格或金額；價格由系統從報價表計算。',
   '3. 折扣、交期承諾、退款、賠償、合約或法律相關要求，一律寫進 needs_human。',
   '4. 有任何不確定的地方，也寫進 needs_human。',
+  '5. 只有 intent 是「詢價」時才填 items 與 unmatched；改期、客訴、其他一律填空陣列 []。',
   '',
   '【信件】',
   '寄件人：{from}',
@@ -76,9 +99,9 @@ const REPLY_PROMPT = [
   '',
   '【規則】',
   '1. 用專業、有禮貌的繁體中文商務書信語氣，150～250 字。',
-  '2. 不要寫任何金額、價格、折扣或交期承諾。若是詢價，只要寫「報價明細請見信末」，明細由系統附上。',
+  '2. 不要寫任何金額、價格、折扣或交期承諾。只有 intent 是「詢價」時，才寫「報價明細請見信末」，明細由系統附上；其他意圖不要提到報價。',
   '3. 不要答應退款、賠償或任何沒有依據的承諾；遇到這類要求，寫「我們確認後會盡快回覆您」。',
-  '4. needs_human 裡的每一項，在信中相關位置標上【需人工確認：…】。',
+  '4. needs_human 裡的每一項，在信中相關位置標上【需人工確認：事項內容】，例如【需人工確認：折扣】；冒號後面一定要寫出具體事項，不可留空或只寫刪節號。needs_human 是空的就不要出現這個標記。',
   '5. 不要編造公司政策、人名、電話或網址；署名寫「（請填入你的署名）」。',
   '6. 只輸出信件內文，不要加任何說明或 Markdown 符號。',
 ].join('\n');
@@ -138,9 +161,10 @@ function processSecretaryMail() {
       if (!msgs.length) throw new Error('這串信裡沒有可以判讀的信');
       const msg = msgs[msgs.length - 1];
       const triage = triageEmail_(msg, prices);
-      const quote = triage.items.length || triage.unmatched.length ? buildQuote_(triage, prices) : null;
+      // 只有詢價才算報價；改期、客訴不附報價明細、不存報價單
+      const quote = triage.intent === '詢價' && (triage.items.length || triage.unmatched.length) ? buildQuote_(triage, prices) : null;
 
-      const reply = flagAmounts_(draftReply_(triage));
+      const reply = flagAmounts_(fixEmptyChecks_(draftReply_(triage), triage.needs_human));
       let body = DRAFT_MARK + '\n\n' + reply.text;
       if (quote) body += '\n\n' + quoteText_(quote);
 
@@ -165,6 +189,11 @@ function processSecretaryMail() {
       thread.removeLabel(inbox).addLabel(done);
       if (ADD_INTENT_LABEL && INTENTS.indexOf(triage.intent) !== -1) {
         thread.addLabel(getOrCreateLabel_(SECRETARY_LABEL + '/' + triage.intent));
+      }
+      // 客訴：草稿照常建立，但另外貼「需人工」，讓今日總覽的「需人工的信」也算到它
+      if (COMPLAINT_NEEDS_HUMAN && triage.intent === '客訴') {
+        thread.addLabel(fail);
+        status += '（客訴，已貼「' + SECRETARY_FAIL_LABEL + '」）';
       }
       logSecretary_([new Date(), triage.customer || '未具名客戶', triage.intent || '其他', msg.getSubject(),
         quote ? (quote.complete ? quote.total : '（未完成）') : '',
@@ -202,12 +231,54 @@ function triageEmail_(msg, prices) {
   t.items = Array.isArray(t.items) ? t.items : [];
   t.unmatched = Array.isArray(t.unmatched) ? t.unmatched : [];
   t.needs_human = Array.isArray(t.needs_human) ? t.needs_human : [];
+  return normalizeTriage_(t, subject, body);
+}
+
+/**
+ * 判讀結果的保險：
+ *   - intent 不是四個選項之一（例如「報價」「inquiry」）或是「其他」時，用 INTENT_KEYWORDS 補判，並寫進 needs_human 請你確認
+ *   - 不是詢價就清掉品項（才不會替改期、客訴算報價）
+ *   - 客訴一定要人工確認
+ */
+function normalizeTriage_(t, subject, body) {
+  t.needs_human = t.needs_human.map(function (x) { return String(x === null || x === undefined ? '' : x).trim(); })
+    .filter(function (x) { return x && !/^[.。…⋯\s]*$/.test(x); });
+  const raw = String(t.intent === null || t.intent === undefined ? '' : t.intent).trim();
+  let intent = INTENTS.indexOf(raw) !== -1 ? raw : '';
+  if (!intent || intent === '其他') {
+    const text = String(subject || '') + '\n' + String(body || '');
+    const hit = INTENT_KEYWORDS.filter(function (k) { return k.re.test(text); })[0];
+    if (hit) {
+      t.needs_human.push('AI 判讀為「' + (raw || '空白') + '」，系統依關鍵字改判為「' + hit.intent + '」，請確認');
+      intent = hit.intent;
+    } else {
+      intent = '其他';
+    }
+  }
+  t.intent = intent;
+  if (intent !== '詢價') {
+    t.items = [];
+    t.unmatched = [];
+  }
+  if (intent === '客訴' && !t.needs_human.length) t.needs_human.push('客訴內容與後續處理方式');
   return t;
 }
 
 function draftReply_(triage) {
   const json = JSON.stringify(triage, null, 2);
   return callAi_(REPLY_PROMPT.replace('{triage_json}', function () { return json; })).trim();
+}
+
+/**
+ * AI 偶爾會照抄格式，留下沒寫內容的【需人工確認：…】。
+ * 空的標記一律補上具體事項：依序用還沒出現在信裡的 needs_human，用完就寫通用提醒。
+ */
+function fixEmptyChecks_(text, needsHuman) {
+  const pending = (needsHuman || []).filter(function (x) { return String(text).indexOf(x) === -1; });
+  return String(text).replace(/【需人工確認[：:]?[\s.。…⋯_＿\-－—]*】/g, function () {
+    const item = pending.shift();
+    return '【需人工確認：' + (item || 'AI 在這裡留了空白標記，請檢查這段內容後補上或刪除') + '】';
+  });
 }
 
 /** 回覆內文不該有金額；萬一 AI 還是寫了，在最上面加【需人工確認】提醒 */

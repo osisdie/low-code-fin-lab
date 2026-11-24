@@ -36,7 +36,7 @@
 3. 左側 **專案設定（齒輪）→ 勾選「在編輯器中顯示『appsscript.json』資訊清單檔案」**，把內容換成本資料夾的 `appsscript.json`。
 4. 存檔，回到 Sheet 重新整理，之後就跟路線一的第 3 步一樣。
 
-> 想手動設定也可以：**專案設定 → 指令碼屬性**，新增 `OPENROUTER_API_KEY`。（選填）`AI_ENABLED` 設為 `false`（也接受 `off`／`0`／`no`）會關閉 AI 摘要，即使已經有 key 也不會呼叫 OpenRouter；每日總覽改寫「AI 摘要已關閉，以下為原始數據。」，秘書選單 ⑤⑥ 會跳出說明而不是失敗。不設這個屬性時：有 key 就開啟，沒有就關閉。（選填）`VAULT_SYMBOL_FOLDER` 是知識庫裡追蹤項目筆記的資料夾名稱，預設「標的」（股票、匯率、加密貨幣都放這裡）；改名後再跑一次「① 一鍵設定」會建立新資料夾，請自行把舊筆記移過去。（選填）`REPORT_TO` 是收件信箱，不填就寄給自己；（選填）`OPENROUTER_MODEL`／`OPENROUTER_FALLBACK_MODEL` 是主要／備用模型，不填就用 `Code.gs` 最上方 `AI_MODEL_PRIMARY`／`AI_MODEL_FALLBACK` 的預設值；`REPORT_TEMPLATE` 是版面（`compact`／`full`／`table`），用選單選比較方便。
+> 想手動設定也可以：**專案設定 → 指令碼屬性**，新增 `OPENROUTER_API_KEY`。（選填）`AI_ENABLED` 設為 `false`（也接受 `off`／`0`／`no`）會關閉 AI 摘要，即使已經有 key 也不會呼叫 OpenRouter；每日總覽改寫「AI 摘要已關閉，以下為原始數據。」，秘書選單 ⑤⑥ 會跳出說明而不是失敗。不設這個屬性時：有 key 就開啟，沒有就關閉。（選填）`VAULT_SYMBOL_FOLDER` 是知識庫裡追蹤項目筆記的資料夾名稱，預設「標的」（股票、匯率、加密貨幣都放這裡）；改名後再跑一次「① 一鍵設定」會建立新資料夾，請自行把舊筆記移過去。若 vault 根目錄裡已經有舊連結（例如 `[[USD_TWD]]`）建出來的標的筆記，請自行移到 `標的/`（或你設定的 `VAULT_SYMBOL_FOLDER`）。（選填）`REPORT_TO` 是收件信箱，不填就寄給自己；（選填）`OPENROUTER_MODEL`／`OPENROUTER_FALLBACK_MODEL` 是主要／備用模型，不填就用 `Code.gs` 最上方 `AI_MODEL_PRIMARY`／`AI_MODEL_FALLBACK` 的預設值；`REPORT_TEMPLATE` 是版面（`compact`／`full`／`table`），用選單選比較方便。
 
 ## 取得 OpenRouter key（免費，不用綁卡）
 

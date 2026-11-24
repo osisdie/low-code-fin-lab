@@ -54,7 +54,7 @@ const PROMPT_TEMPLATE = [
   '1. 只能使用【今日數據】裡的數字。沒有的欄位（值為 null 或「查無資料」）就寫「查無資料」，絕對不要憑記憶或猜測補數字。',
   '2. 漲跌用 📈（上漲）／📉（下跌），標示百分比；百分比已提供，不要自己重算。',
   '3. 每個項目用一句話描述變化即可；若數據裡沒有原因，就不要編造原因。',
-  '4. 美股欄位若 usMarketOpen 為 false，要明確寫「美股因假期休市（沿用 ○○ 收盤數字）」。',
+  '4. 美股欄位若 usMarketOpen 為 false，要明確寫「美股休市（沿用 X 收盤數字）」，X 直接用【今日數據】的 usLastCloseDate，不要自己推算日期。',
   '5. 重點總數控制在 8～10 項，優先呈現漲跌幅較大的。',
   '6. 禁止任何投資建議、買賣建議、預測或個人觀點。',
   '7. 全程使用自然、專業的繁體中文。',
@@ -218,6 +218,7 @@ function buildBriefingContext_() {
   const data = {
     date: dateStr,
     usMarketOpen: isUsWeekday_(now),
+    usLastCloseDate: lastUsCloseDate_(now), // 美股休市時摘要要寫的「沿用哪天收盤」，由程式算，不讓 AI 推算
     items: [].concat(readSheetItems_(), fetchYahooItems_(), fetchBitcoin_()),
   };
 
@@ -357,7 +358,7 @@ function buildPrompt_(dateStr, data) {
 
 /**
  * 找出摘要裡「原始數據沒有」的數字（AI 偶爾會抄錯或自己算）。
- * 允許的數字：各項目的現價、前一收盤、漲跌幅（含四捨五入到摘要寫的位數）、名稱與代碼裡的數字、日期。
+ * 允許的數字：各項目的現價、前一收盤、漲跌幅（含四捨五入到摘要寫的位數）、名稱與代碼裡的數字、日期與美股最近收盤日。
  */
 function checkSummaryNumbers_(summary, data) {
   const known = [];
@@ -366,6 +367,7 @@ function checkSummaryNumbers_(summary, data) {
       .forEach(function (n) { known.push(Number(n)); });
   };
   addFromText(data.date);
+  addFromText(data.usLastCloseDate);
   data.items.forEach(function (it) {
     addFromText(it.name);
     addFromText(it.symbol);
@@ -538,6 +540,25 @@ function roundTo_(v, digits) {
 function isUsWeekday_(now) {
   const d = Utilities.formatDate(now, 'America/New_York', 'u'); // 1=週一 … 7=週日
   return Number(d) <= 5;
+}
+
+/**
+ * 最近一個美股收盤日（美東時間）→「11月21日」。
+ * 週末往前找到週五；平日收盤（16:00）前算前一個平日。國定假日無法判斷（見 README 已知限制）。
+ */
+function lastUsCloseDate_(now) {
+  const p = Utilities.formatDate(now, 'America/New_York', 'yyyy-MM-dd-u-H').split('-').map(Number);
+  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2], 12)); // 用 UTC 中午代表美東那一天，往前推日期不受時區影響
+  let dow = p[3]; // 1=週一 … 7=週日
+  if (dow <= 5 && p[4] < 16) {
+    d.setUTCDate(d.getUTCDate() - 1);
+    dow = dow - 1 || 7;
+  }
+  while (dow >= 6) {
+    d.setUTCDate(d.getUTCDate() - 1);
+    dow -= 1;
+  }
+  return (d.getUTCMonth() + 1) + '月' + d.getUTCDate() + '日';
 }
 
 function rawTable_(data) {

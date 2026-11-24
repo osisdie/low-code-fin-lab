@@ -264,7 +264,14 @@ function readSheetItems_() {
   return rows
     .filter(function (r) { return r[0]; })
     .map(function (r) {
-      return { name: r[0], symbol: r[1], key: noteKey_(r[0]), price: numOrNull_(r[2]), prevClose: numOrNull_(r[3]), changePct: numOrNull_(r[4]), source: 'Google Finance' };
+      // 匯率數字小（例如 JPY/TWD 0.2134），保留 4 位小數；其他保留 2 位
+      const digits = /^CURRENCY:/i.test(String(r[1])) ? 4 : 2;
+      const price = numOrNull_(r[2], digits);
+      const prevClose = numOrNull_(r[3], digits);
+      let changePct = numOrNull_(r[4]);
+      // E 欄空白（部分匯率沒有 changepct）但有現價與前一收盤時，自己算；都沒有就維持「查無資料」
+      if (changePct === null && price !== null && prevClose) changePct = round2_((r[2] / r[3] - 1) * 100);
+      return { name: r[0], symbol: r[1], key: noteKey_(r[0]), price: price, prevClose: prevClose, changePct: changePct, source: 'Google Finance' };
     });
 }
 
@@ -396,12 +403,19 @@ function getProp_(name) {
   return PropertiesService.getScriptProperties().getProperty(name);
 }
 
-function numOrNull_(v) {
-  return typeof v === 'number' && isFinite(v) ? round2_(v) : null;
+/** 儲存格是數字才用（#N/A、空白、文字都當成查無資料）；digits 預設 2 位小數 */
+function numOrNull_(v, digits) {
+  return typeof v === 'number' && isFinite(v) ? roundTo_(v, digits === undefined ? 2 : digits) : null;
 }
 
 function round2_(v) {
-  return typeof v === 'number' && isFinite(v) ? Math.round(v * 100) / 100 : null;
+  return roundTo_(v, 2);
+}
+
+function roundTo_(v, digits) {
+  if (typeof v !== 'number' || !isFinite(v)) return null;
+  const f = Math.pow(10, digits);
+  return Math.round(v * f) / f;
 }
 
 /** 以美東時間判斷是否為平日；國定假日無法自動判斷（見 README 已知限制） */

@@ -20,14 +20,14 @@
 | A | 名稱 | 你想在報告看到的名字，例如「USD/TWD」 |
 | B | 代碼 | GOOGLEFINANCE 用的代碼 |
 | C | 現價 | `=GOOGLEFINANCE(B2,"price")` |
-| D | 前一收盤 | 見下方公式 |
-| E | 漲跌幅 % | `=IFERROR((C2/D2-1)*100,"")` |
+| D | 前一收盤 | `=IFERROR(GOOGLEFINANCE(B2,"closeyest"),"")` |
+| E | 漲跌幅 % | `=IFERROR(GOOGLEFINANCE(B2,"changepct"),"")` |
 
-## D 欄（前一收盤）公式
-```
-=IFERROR(INDEX(GOOGLEFINANCE(B2,"close",TODAY()-10,TODAY()),ROWS(GOOGLEFINANCE(B2,"close",TODAY()-10,TODAY()))-1,2),"")
-```
-取最近 10 天歷史收盤的**倒數第二筆**。若盤中最後一筆已是今天，倒數第二筆就是前一交易日；若今天尚未開盤，最後一筆是昨天，結果會偏一天，這是已知限制，Stage 2 講義會讓學員觀察。
+## 為什麼 D、E 欄不用歷史資料公式
+`GOOGLEFINANCE(代碼,"close",開始日,結束日)` 這類**歷史資料**只能在試算表畫面上看，Google 規定 Apps Script 讀到的會是 `#N/A`（引用它的儲存格也一樣）。所以 D、E 欄一律用即時屬性 `closeyest`（前一收盤）與 `changepct`（今日漲跌幅 %），程式才讀得到。
+
+- 部分匯率（`CURRENCY:` 開頭）可能不提供 `closeyest`／`changepct`，D、E 欄會是空白，這是正常的：程式有 C、D 兩欄就自己算漲跌幅；都沒有就在信裡寫「查無資料」，不會亂補。
+- 匯率在程式裡保留 4 位小數（例如 JPY/TWD 0.2134），其他項目保留 2 位。
 
 ## 建議的起始列（代碼需在你的 Sheet 實測，改名後以能出數字為準）
 | 名稱 | 代碼 |

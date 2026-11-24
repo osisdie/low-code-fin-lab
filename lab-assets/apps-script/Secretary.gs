@@ -27,6 +27,7 @@ const MAX_THREADS_PER_RUN = 5;       // 一次最多處理幾封，避免用光�
 const MAX_BODY_CHARS = 4000;         // 信件內文太長時只送前面這麼多字給 AI
 const ADD_INTENT_LABEL = true;        // 依判讀結果多貼一個標籤，例如「AI秘書/詢價」（不想要就改成 false）
 const INTENTS = ['詢價', '改期', '客訴', '其他'];
+const NO_QUOTE_CHECK = '信中的品項無法對應報價表，請人工報價';
 const COMPLAINT_NEEDS_HUMAN = true;  // 客訴一定要人看：草稿照常建立，但另外貼「AI秘書/需人工」標籤（不想要就改成 false）
 // AI 判成「其他」或回傳不在清單裡的意圖時，用關鍵字補判（依序比對，先對到的算數）
 const INTENT_KEYWORDS = [
@@ -99,7 +100,7 @@ const REPLY_PROMPT = [
   '',
   '【規則】',
   '1. 用專業、有禮貌的繁體中文商務書信語氣，150～250 字。',
-  '2. 不要寫任何金額、價格、折扣或交期承諾。只有 intent 是「詢價」時，才寫「報價明細請見信末」，明細由系統附上；其他意圖不要提到報價。',
+  '2. 不要寫任何金額、價格、折扣或交期承諾。只有 hasQuote 是 true 時，才寫「報價明細請見信末」，明細由系統附上；hasQuote 是 false 時不要提到信末明細或附上報價。',
   '3. 不要答應退款、賠償或任何沒有依據的承諾；遇到這類要求，寫「我們確認後會盡快回覆您」。',
   '4. needs_human 裡的每一項，在信中相關位置標上【需人工確認：事項內容】，例如【需人工確認：折扣】；冒號後面一定要寫出具體事項，不可留空或只寫刪節號。needs_human 是空的就不要出現這個標記。',
   '5. 不要編造公司政策、人名、電話或網址；署名寫「（請填入你的署名）」。',
@@ -163,8 +164,11 @@ function processSecretaryMail() {
       const triage = triageEmail_(msg, prices);
       // 只有詢價才算報價；改期、客訴不附報價明細、不存報價單
       const quote = triage.intent === '詢價' && (triage.items.length || triage.unmatched.length) ? buildQuote_(triage, prices) : null;
+      // 詢價但對不到任何品項（例如關鍵字改判、或客戶沒寫具體品項）：沒有明細可附，請人工報價
+      if (triage.intent === '詢價' && !quote) triage.needs_human.push(NO_QUOTE_CHECK);
+      triage.hasQuote = !!quote; // 回覆提示詞依這個決定要不要寫「報價明細請見信末」
 
-      const reply = flagAmounts_(fixEmptyChecks_(draftReply_(triage), triage.needs_human));
+      const reply = flagAmounts_(stripQuoteMentions_(fixEmptyChecks_(draftReply_(triage), triage.needs_human), triage.hasQuote, triage.intent));
       let body = DRAFT_MARK + '\n\n' + reply.text;
       if (quote) body += '\n\n' + quoteText_(quote);
 
@@ -279,6 +283,24 @@ function fixEmptyChecks_(text, needsHuman) {
     const item = pending.shift();
     return '【需人工確認：' + (item || 'AI 在這裡留了空白標記，請檢查這段內容後補上或刪除') + '】';
   });
+}
+
+/**
+ * 沒有附報價明細時，AI 還是寫了「報價明細請見信末」這類句子，避免客戶找不到明細：
+ *   詢價信整句換成【需人工確認】提醒人工報價；其他意圖（改期、客訴…）直接刪掉那句。
+ * 有明細（hasQuote 為 true）就原樣回傳。
+ */
+function stripQuoteMentions_(text, hasQuote, intent) {
+  if (hasQuote) return String(text);
+  const mark = intent === '詢價' ? '【需人工確認：本信沒有附報價明細，請人工報價後再寄出】' : '';
+  let replaced = false;
+  const out = String(text).replace(/[^。！？!?\n]*(?:(?:報價|明細|報價單)[^。！？!?\n]*(?:信末|下方|附件|隨信)|(?:信末|下方|附件|隨信)[^。！？!?\n]*(?:報價|明細))[^。！？!?\n]*[。！？!?]?/g,
+    function () {
+      if (replaced) return '';
+      replaced = true;
+      return mark;
+    });
+  return out;
 }
 
 /** 回覆內文不該有金額；萬一 AI 還是寫了，在最上面加【需人工確認】提醒 */

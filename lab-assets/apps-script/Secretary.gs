@@ -396,7 +396,12 @@ function parseJson_(text) {
     // 免費模型有時會在 JSON 前後加一句說明：只取第一個 { 到最後一個 } 再試一次
     const a = t.indexOf('{');
     const b = t.lastIndexOf('}');
-    if (a === -1 || b <= a) throw new Error('AI 回傳的判讀結果不是 JSON，請再處理一次或改人工處理。');
-    return JSON.parse(t.slice(a, b + 1));
+    const notJson = 'AI 回傳的判讀結果不是 JSON，請再處理一次或改人工處理。';
+    if (a === -1 || b <= a) throw new Error(notJson);
+    try {
+      return JSON.parse(t.slice(a, b + 1));
+    } catch (err2) {
+      throw new Error(notJson);
+    }
   }
 }

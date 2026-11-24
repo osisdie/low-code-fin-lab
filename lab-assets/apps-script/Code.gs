@@ -520,6 +520,14 @@ function callOpenRouterOnce_(key, model, prompt, opts) {
   return text;
 }
 
+/**
+ * 429 是不是「每天的免費模型額度」用完（整個帳號共用，換模型沒用）。
+ * OpenRouter 這種錯誤的訊息會寫 free-models-per-day；每分鐘限制（free-models-per-min）或上游模型忙碌的 429 不算，仍會換備用模型。
+ */
+function isFreeDailyLimit_(body) {
+  return /free-models-per-day|free model requests per day/i.test(String(body || ''));
+}
+
 /** 把 OpenRouter 的 HTTP 錯誤翻成學員看得懂的話（回傳 Error；body 只取 OpenRouter 的錯誤說明，不含 key） */
 function openRouterHttpError_(code, body, model) {
   let detail = '';
@@ -535,6 +543,11 @@ function openRouterHttpError_(code, body, model) {
   if (code === 401) {
     msg = 'OpenRouter key 無效（401）：請確認 key 有完整貼上（sk-or- 開頭、沒有少字），或到 ' + OPENROUTER_KEYS_PAGE +
       ' 重新建立一把，再點「① 一鍵設定」貼上新的。';
+    stopRetry = true;
+  } else if (code === 429 && isFreeDailyLimit_(body)) {
+    // 每天的免費額度是整個帳號共用，換備用模型也一樣會被擋，直接停
+    msg = '今天的免費額度用完了（429）。免費模型每天約 50 次（以官網為準），整個帳號共用，' +
+      '台灣時間早上 8 點（UTC 00:00）重置，明天再試。';
     stopRetry = true;
   } else if (code === 429) {
     msg = '免費額度暫時用完（429）。免費模型每分鐘約 20 次、每天約 50 次（以官網為準），' +

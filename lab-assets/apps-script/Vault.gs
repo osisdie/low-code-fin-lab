@@ -17,10 +17,10 @@ const VAULT_ROOT_NAME = 'FinLab-Vault';
 const VAULT_SYMBOL_FOLDER_DEFAULT = '標的';
 const VAULT_SYMBOL_FOLDER_PROP = 'VAULT_SYMBOL_FOLDER';
 
-/** 標的筆記資料夾名稱：指令碼屬性可改；空白或不合法（含路徑分隔）就用預設「標的」 */
+/** 標的筆記資料夾名稱：指令碼屬性可改；空白或不合法（含路徑分隔或會弄壞 wikilink 的字元）就用預設「標的」 */
 function vaultSymbolFolder_() {
   const raw = String(getProp_(VAULT_SYMBOL_FOLDER_PROP) || VAULT_SYMBOL_FOLDER_DEFAULT).trim();
-  if (!raw || raw === '.' || raw === '..' || /[\\/:]/.test(raw)) return VAULT_SYMBOL_FOLDER_DEFAULT;
+  if (!raw || raw === '.' || raw === '..' || /[\\/:|\[\]#^]/.test(raw)) return VAULT_SYMBOL_FOLDER_DEFAULT;
   return raw;
 }
 

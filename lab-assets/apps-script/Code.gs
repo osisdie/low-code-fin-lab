@@ -13,7 +13,7 @@
  *   - OpenRouter API key 放在「專案設定 → 指令碼屬性」(OPENROUTER_API_KEY)，不要寫進這份程式碼。
  *     程式不會把 key 印到紀錄、對話框或信件裡。
  *
- * 第一次使用：重新整理試算表 → 上方選單「📰 我的 AI 助理」→ ① 一鍵設定 → ② 立即寄一封今日總覽 → ③ 開啟每日自動寄送
+ * 第一次使用：重新整理試算表 → 上方選單「📰 我的 AI 助理」→ ① 一鍵設定（OpenRouter key 可留空，改走「關閉 AI」）→ ② 立即寄一封今日總覽 → ③ 開啟每日自動寄送
  *   （不用打開這個編輯器；手動執行時依序跑 setupWizard → sendDailyReport → setupDailyTrigger 也可以）
  * 詳細點擊步驟見 README.md 與 docs/student/student-stage-2-lab.md
  * 秘書功能在 Secretary.gs；建立知識庫資料夾與起始檔案在 Vault.gs；信件版面在 Templates.gs。
@@ -27,6 +27,8 @@ const SHEET_NAME = '數據';          // 放 GOOGLEFINANCE 公式的分頁名稱
 const AI_MODEL_PRIMARY = 'openrouter/free';            // OpenRouter 自動挑一個當下可用的免費模型
 const AI_MODEL_FALLBACK = 'google/gemma-4-31b-it:free'; // 備用：指定一個中文表現穩定的免費模型
 const AI_KEY_PROP = 'OPENROUTER_API_KEY';              // key 存在指令碼屬性的名稱
+const AI_ENABLED_PROP = 'AI_ENABLED';                   // true／false（也接受 on／off）；沒設時：有 key 就開啟，沒有就關閉
+const AI_OFF_SUMMARY = 'AI 摘要已關閉，以下為原始數據。';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_KEYS_PAGE = 'https://openrouter.ai/settings/keys';
 const TRIGGER_HOUR = 8;             // 每天幾點寄出（依 appsscript.json 的時區：Asia/Taipei）
@@ -107,7 +109,7 @@ function onOpen() {
     .addToUi();
 }
 
-/** 一鍵設定：收 OpenRouter key → 測試 → 建立知識庫資料夾與起始檔案 */
+/** 一鍵設定：收 OpenRouter key（可留空以關閉 AI）→ 有 key 且 AI 開啟時才測試 → 建立知識庫資料夾與起始檔案 */
 function setupWizard() {
   // 一次確認所有權限：授權畫面上沒勾到的，這裡會再跳出來請你補勾
   ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
@@ -118,10 +120,11 @@ function setupWizardSteps_() {
   const ui = SpreadsheetApp.getUi();
   const props = PropertiesService.getScriptProperties();
   const hasKey = !!props.getProperty(AI_KEY_PROP);
-  const res = ui.prompt('一鍵設定：貼上 OpenRouter API key',
+  const res = ui.prompt('一鍵設定：OpenRouter key（可留空）',
     (hasKey ? '已經設定過 key。要換新的才貼；留空直接按「確定」就沿用舊的。\n\n' : '') +
     '用 Google 帳號登入 https://openrouter.ai ，到 Keys 頁面（' + OPENROUTER_KEYS_PAGE + '）按「Create」建立 key，複製後貼在下面。\n' +
     '免費模型不用綁信用卡。key 是 sk-or- 開頭的一長串字。\n' +
+    '還沒有 key、或想先只用原始數據的話，這裡留空按「確定」即可：程式會關閉 AI 摘要，仍會建立知識庫資料夾。\n' +
     'key 只會存進這份檔案的「指令碼屬性」，不會出現在表格裡，分享表格也看不到。',
     ui.ButtonSet.OK_CANCEL);
   if (res.getSelectedButton() !== ui.Button.OK) return;
@@ -135,16 +138,21 @@ function setupWizardSteps_() {
   }
   if (key) {
     props.setProperty(AI_KEY_PROP, key);
+    props.setProperty(AI_ENABLED_PROP, 'true');
     // 舊版（Gemini）留下的設定用不到了，順手清掉
     props.deleteProperty('GEMINI_API_KEY');
     props.deleteProperty('GEMINI_MODEL');
-  } else if (!hasKey) { ui.alert('沒有貼上 key，設定先暫停。準備好再點一次「① 一鍵設定」。'); return; }
+  } else if (!hasKey) {
+    props.setProperty(AI_ENABLED_PROP, 'false');
+  }
 
-  try {
-    callAi_('請只回答：OK');
-  } catch (err) {
-    ui.alert('key 測試失敗', err.message + '\n\n處理好之後，再點一次「① 一鍵設定」。', ui.ButtonSet.OK);
-    return;
+  if (isAiEnabled_()) {
+    try {
+      callAi_('請只回答：OK');
+    } catch (err) {
+      ui.alert('key 測試失敗', err.message + '\n\n處理好之後，再點一次「① 一鍵設定」。', ui.ButtonSet.OK);
+      return;
+    }
   }
 
   let root;
@@ -153,14 +161,18 @@ function setupWizardSteps_() {
   } catch (err) {
     logError_('一鍵設定：建立知識庫資料夾', err);
     ui.alert('知識庫資料夾建立失敗',
-      'OpenRouter key 已經測試成功並存好了，但在雲端硬碟建立「' + VAULT_ROOT_NAME + '」時出錯：\n' + err.message + '\n\n' +
+      (getProp_(AI_KEY_PROP) ? 'OpenRouter key 已經存好了，但' : '') +
+      '在雲端硬碟建立「' + VAULT_ROOT_NAME + '」時出錯：\n' + err.message + '\n\n' +
       '最常見的原因是授權時沒有勾選雲端硬碟權限。請再點一次「① 一鍵設定」（key 留空就會沿用），授權畫面全部勾選後按「允許」。',
       ui.ButtonSet.OK);
     return;
   }
+  const aiLine = isAiEnabled_()
+    ? 'OpenRouter key 測試成功，AI 摘要已開啟。\n'
+    : '目前 AI 摘要已關閉。每日總覽會寄出原始數據，並註明「' + AI_OFF_SUMMARY + '」。\n若要開啟，再點一次「① 一鍵設定」貼上 OpenRouter key，或把指令碼屬性 AI_ENABLED 設為 true。\n';
   ui.alert('設定完成 ✅',
-    'OpenRouter key 測試成功。\n' +
-    '已在你的雲端硬碟建立資料夾「' + root.getName() + '」（Obsidian 知識庫，Stage 3 會用到）。\n\n' +
+    aiLine +
+    '已在你的雲端硬碟建立資料夾「' + root.getName() + '」（Obsidian 知識庫，Stage 3 會用到；追蹤項目筆記在「' + vaultSymbolFolder_() + '」）。\n\n' +
     '下一步：選單「② 立即寄一封今日總覽」，到信箱看看。',
     ui.ButtonSet.OK);
 }
@@ -251,18 +263,7 @@ function buildBriefingContext_() {
   // 摘要的【匯率】段落要逐一列出這幾組（免費模型常常只挑一組寫）
   data.fxPairs = data.items.filter(isFxItem_).map(function (it) { return it.name; });
 
-  let summary;
-  try {
-    summary = ensureFxLines_(callAi_(buildPrompt_(dateStr, data)), data);
-    const odd = checkSummaryNumbers_(summary, data);
-    if (odd.length) {
-      summary = '⚠️ 自動檢查：摘要裡有數字在原始數據找不到（' + odd.slice(0, 5).join('、') + (odd.length > 5 ? '…' : '') +
-        '），可能是 AI 抄錯或自己換算，請以下方「原始數據」為準。\n\n' + summary;
-    }
-  } catch (err) {
-    console.warn('AI 摘要失敗，改寄原始數據：' + err.message);
-    summary = '（這次沒有 AI 摘要，以下僅列出原始數據，數字一樣可以用。原因：' + err.message + '）';
-  }
+  const summary = buildAiSummary_(dateStr, data);
 
   let secretary = null;
   try {
@@ -443,6 +444,41 @@ function fetchYahooQuote_(symbol, digits) {
   return { price: roundTo_(price, digits), prevClose: roundTo_(prev, digits), changePct: round2_((price / prev - 1) * 100) };
 }
 
+/** AI 開不開：指令碼屬性 AI_ENABLED 為 false／off／0／no 就是關；沒設這個屬性時，有 OpenRouter key 才算開。 */
+function isAiEnabled_() {
+  const flag = String(getProp_(AI_ENABLED_PROP) || '').trim().toLowerCase();
+  if (flag === 'false' || flag === 'off' || flag === '0' || flag === 'no') return false;
+  return !!getProp_(AI_KEY_PROP);
+}
+
+/** 關閉 AI 或沒有 key 時，日報與信件使用的說明（不會當成錯誤） */
+function buildAiSummary_(dateStr, data) {
+  if (!isAiEnabled_()) return AI_OFF_SUMMARY;
+  try {
+    const summary = ensureFxLines_(callAi_(buildPrompt_(dateStr, data)), data);
+    const odd = checkSummaryNumbers_(summary, data);
+    if (odd.length) {
+      return '⚠️ 自動檢查：摘要裡有數字在原始數據找不到（' + odd.slice(0, 5).join('、') + (odd.length > 5 ? '…' : '') +
+        '），可能是 AI 抄錯或自己換算，請以下方「原始數據」為準。\n\n' + summary;
+    }
+    return summary;
+  } catch (err) {
+    console.warn('AI 摘要失敗，改寄原始數據：' + err.message);
+    return '（這次沒有 AI 摘要，以下僅列出原始數據，數字一樣可以用。原因：' + err.message + '）';
+  }
+}
+
+/** ⑤⑥ 在 AI 關閉時用的說明，避免被當成執行失敗 */
+function alertAiOffForSecretary_(title) {
+  SpreadsheetApp.getUi().alert(
+    title,
+    '秘書功能需要開啟 AI 才能判讀信件、撰寫回覆草稿。\n\n' +
+    '目前 AI 摘要已關閉，每日總覽仍會寄出原始數據。\n\n' +
+    '若要使用⑤⑥，請先點「① 一鍵設定」貼上 OpenRouter key，或把指令碼屬性 AI_ENABLED 設為 true。\n' +
+    '若你改用 ChatGPT 或 Claude 的訂閱在瀏覽器整理信件，請不要使用這兩個選單。',
+    SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
 // ============ AI 摘要（OpenRouter）============
 function buildPrompt_(dateStr, data) {
   // 用函式當替換值：資料裡的 $ 符號不會被當成特殊字元
@@ -547,7 +583,10 @@ function checkSummaryNumbers_(summary, data) {
 function callAi_(prompt, opts) {
   opts = opts || {};
   const key = getProp_(AI_KEY_PROP);
-  if (!key) throw new Error('尚未設定 OpenRouter key，請先點選單「① 一鍵設定」。');
+  if (!isAiEnabled_()) {
+    if (key) throw new Error('AI 摘要已關閉（指令碼屬性 AI_ENABLED 設為 false）。若要開啟，把它改成 true。');
+    throw new Error('尚未設定 OpenRouter key，請先點選單「① 一鍵設定」。');
+  }
   const models = aiModels_();
   const reasons = [];
   for (let i = 0; i < models.length; i++) {
@@ -817,7 +856,7 @@ function buildReportMarkdown_(isoDate, data, summary, secretary) {
 
   const rows = data.items.map(function (it) {
     // 表格裡的連結別名要寫成 \|，否則會被當成欄位分隔
-    const label = it.key ? '[[' + it.key + '\\|' + it.name + ']]' : it.name;
+    const label = symbolWikiLink_(it);
     const pct = it.changePct === null ? '' : (it.changePct >= 0 ? '📈 +' : '📉 ') + it.changePct + '%';
     return '| ' + label + ' | ' + (it.price === null ? '查無資料' : it.price) + ' | ' + pct + ' | ' + it.source + ' |';
   });

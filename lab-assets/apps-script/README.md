@@ -1,6 +1,6 @@
 # Apps Script：每日財經報告＋商務秘書
 
-一份 Google Sheet 就是整個「AI 助理」：每天早上寄一封「今日總覽」（財經數字＋秘書待辦，版面任選）、每天記一列「日報紀錄」、把日報存進 Obsidian 知識庫，並幫你把客戶來信變成回覆草稿與報價單草稿。**全部免費，只需要一個 Google 帳號（AI 摘要再加一把免費的 OpenRouter key，不用綁卡）。**
+一份 Google Sheet 就是整個「AI 助理」：每天早上寄一封「今日總覽」（財經數字＋秘書待辦，版面任選）、每天記一列「日報紀錄」、把日報存進 Obsidian 知識庫，並幫你把客戶來信變成回覆草稿與報價單草稿。**全部免費，只需要一個 Google 帳號。** AI 摘要再加一把免費的 OpenRouter key（不用綁卡）；沒有 key、或把指令碼屬性 `AI_ENABLED` 設為 `false` 時，每日總覽仍會寄出原始數據，只是不會呼叫 AI。
 
 | 檔案 | 做什麼 |
 |---|---|
@@ -20,8 +20,8 @@
    - 出現「**Google 尚未驗證這個應用程式**」→ 點 **進階** → **前往「…」（不安全）**。這是因為程式是你自己這份副本、沒有送 Google 審查，不是病毒；權限清單見下方說明。
    - 權限清單可以逐項勾選：**請全部勾選**（或按「全選」）再按 **允許**。少勾的話，程式會在用到時再跳一次授權。
    - 授權完如果沒有跳出貼 key 的對話框，**再點一次 ① 一鍵設定**（第一次點選單常常只會跳授權）。
-   - 貼上 OpenRouter API key → 確定。還沒有 key 的話，照下方「[取得 OpenRouter key](#取得-openrouter-key免費不用綁卡)」做，大約 2 分鐘。
-   - 看到「設定完成 ✅」，雲端硬碟會多一個 `FinLab-Vault` 資料夾。
+   - 貼上 OpenRouter API key → 確定。還沒有 key、或想先只用原始數據的話，**這裡可以留空**：程式會關閉 AI 摘要，仍會建立知識庫資料夾。之後要開啟，再點一次 ① 貼上 key 即可。取得 key 的步驟見下方「[取得 OpenRouter key](#取得-openrouter-key免費不用綁卡)」。
+   - 看到「設定完成 ✅」，雲端硬碟會多一個 `FinLab-Vault` 資料夾（含 `日報`、`秘書`、`筆記`、`標的`）。
 5. 點 **② 立即寄一封今日總覽** → 到信箱看信，與 Google Finance／CoinGecko 網頁核對數字；試算表會多一個「日報紀錄」分頁。
 6. 點 **🎨 寄三種版面樣張給我** 比較，再用 **🎨 選擇信件版面** 選一種（預設「完整」）。
 7. 點 **③ 開啟每日 08:00 自動寄送**。
@@ -36,7 +36,7 @@
 3. 左側 **專案設定（齒輪）→ 勾選「在編輯器中顯示『appsscript.json』資訊清單檔案」**，把內容換成本資料夾的 `appsscript.json`。
 4. 存檔，回到 Sheet 重新整理，之後就跟路線一的第 3 步一樣。
 
-> 想手動設定也可以：**專案設定 → 指令碼屬性**，新增 `OPENROUTER_API_KEY`。（選填）`REPORT_TO` 是收件信箱，不填就寄給自己；（選填）`OPENROUTER_MODEL`／`OPENROUTER_FALLBACK_MODEL` 是主要／備用模型，不填就用 `Code.gs` 最上方 `AI_MODEL_PRIMARY`／`AI_MODEL_FALLBACK` 的預設值；`REPORT_TEMPLATE` 是版面（`compact`／`full`／`table`），用選單選比較方便。
+> 想手動設定也可以：**專案設定 → 指令碼屬性**，新增 `OPENROUTER_API_KEY`。（選填）`AI_ENABLED` 設為 `false`（也接受 `off`／`0`／`no`）會關閉 AI 摘要，即使已經有 key 也不會呼叫 OpenRouter；每日總覽改寫「AI 摘要已關閉，以下為原始數據。」，秘書選單 ⑤⑥ 會跳出說明而不是失敗。不設這個屬性時：有 key 就開啟，沒有就關閉。（選填）`VAULT_SYMBOL_FOLDER` 是知識庫裡追蹤項目筆記的資料夾名稱，預設「標的」（股票、匯率、加密貨幣都放這裡）；改名後再跑一次「① 一鍵設定」會建立新資料夾，請自行把舊筆記移過去。（選填）`REPORT_TO` 是收件信箱，不填就寄給自己；（選填）`OPENROUTER_MODEL`／`OPENROUTER_FALLBACK_MODEL` 是主要／備用模型，不填就用 `Code.gs` 最上方 `AI_MODEL_PRIMARY`／`AI_MODEL_FALLBACK` 的預設值；`REPORT_TEMPLATE` 是版面（`compact`／`full`／`table`），用選單選比較方便。
 
 ## 取得 OpenRouter key（免費，不用綁卡）
 
@@ -89,7 +89,7 @@
 - Yahoo Finance 圖表端點為非官方公開端點，可能變動或限流；失敗時該項目顯示「查無資料」。
 - 比特幣先抓 CoinGecko；被限流（429）或暫時故障會等幾秒重試，還是不行就改用 Yahoo Finance `BTC-USD`（這時漲跌是「與前一日收盤相比」，來源欄會註明）。錯誤碼只寫進執行紀錄，不會放進給 AI 的資料，避免摘要把「429」當成數字。
 - 摘要的【匯率】段落由 AI 撰寫；若漏寫「數據」分頁裡的某組匯率，程式會依原始數據自動補上那一行。
-- OpenRouter 免費模型的名單與額度常常變動，以官網為準（查證日期 2026-11-24，見下方「免費額度」）。主要模型 `openrouter/free` 失敗（錯誤、空白回覆、每分鐘額度或上游忙碌的 429）會自動改用備用模型 `google/gemma-4-31b-it:free` 再試一次；每天的免費額度是整個帳號共用，用完時換模型也沒用，就不再重試；兩個都失敗時仍會寄出原始數據，信裡會用中文寫出原因，秘書則把該封信改貼「AI秘書/需人工」標籤。模型下架時，改 `Code.gs` 最上方的 `AI_MODEL_PRIMARY`／`AI_MODEL_FALLBACK` 即可。
+- OpenRouter 免費模型的名單與額度常常變動，以官網為準（查證日期 2026-11-24，見下方「免費額度」）。主要模型 `openrouter/free` 失敗（錯誤、空白回覆、每分鐘額度或上游忙碌的 429）會自動改用備用模型 `google/gemma-4-31b-it:free` 再試一次；每天的免費額度是整個帳號共用，用完時換模型也沒用，就不再重試；兩個都失敗時仍會寄出原始數據，信裡會用中文寫出原因，秘書則把該封信改貼「AI秘書/需人工」標籤。模型下架時，改 `Code.gs` 最上方的 `AI_MODEL_PRIMARY`／`AI_MODEL_FALLBACK` 即可。沒有 key、或 `AI_ENABLED` 為 `false` 時不會呼叫 OpenRouter，信裡改寫「AI 摘要已關閉，以下為原始數據。」，不會出現「尚未設定 OpenRouter key」。
 - `openrouter/free` 每次可能挑到不同的免費模型，摘要的文筆會有差異；數字一律以信中「原始數據」為準，程式也會自動檢查摘要裡的數字。
 - 時間觸發器會在指定的那個小時內執行，不一定剛好 08:00。
 - 雲端硬碟權限用完整的 `drive`：Apps Script 的 `DriveApp` 不接受只限本程式檔案的 `drive.file`（用了會在一鍵設定時出現權限錯誤）。
@@ -99,7 +99,7 @@
 
 發出「建立副本」連結前，請用一個**全新的個人 Gmail**（沒有用過 Apps Script、沒有用過 OpenRouter）從頭走一次，這些項目沒辦法在本機測：
 
-1. **清空範本的指令碼屬性**：範本 Sheet → 擴充功能 → Apps Script → 專案設定 → 指令碼屬性，刪掉 `OPENROUTER_API_KEY`、`VAULT_ROOT_ID`、`REPORT_TO`、`OPENROUTER_MODEL`、`OPENROUTER_FALLBACK_MODEL`、`REPORT_TEMPLATE`（舊版留下的 `GEMINI_API_KEY`、`GEMINI_MODEL` 也一起刪）。副本會不會帶走這些值請以實測為準，先清空最保險，避免學員共用你的 key 和額度。
+1. **清空範本的指令碼屬性**：範本 Sheet → 擴充功能 → Apps Script → 專案設定 → 指令碼屬性，刪掉 `OPENROUTER_API_KEY`、`AI_ENABLED`、`VAULT_ROOT_ID`、`VAULT_SYMBOL_FOLDER`、`REPORT_TO`、`OPENROUTER_MODEL`、`OPENROUTER_FALLBACK_MODEL`、`REPORT_TEMPLATE`（舊版留下的 `GEMINI_API_KEY`、`GEMINI_MODEL` 也一起刪）。副本會不會帶走這些值請以實測為準，先清空最保險，避免學員共用你的 key 和額度。
 2. **刪掉範本的觸發器**（左側「觸發條件」），範本本身不要每天寄信。
 3. 全新帳號打開 `/copy` 連結 → 建立副本 → 選單出現。
 4. **① 一鍵設定**：授權畫面全部勾選；用新帳號建立的 key 測試成功；雲端硬碟出現 `FinLab-Vault`（確認 `drive` 權限可用）。

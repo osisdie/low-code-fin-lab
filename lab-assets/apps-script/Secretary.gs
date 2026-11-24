@@ -109,6 +109,7 @@ const REPLY_PROMPT = [
 
 // ============ 選單 ============
 function menuProcessSecretary() {
+  if (!isAiEnabled_()) { alertAiOffForSecretary_('秘書處理'); return; }
   ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, SECRETARY_SCOPES);
   runMenu_('秘書處理', function () {
     const r = processSecretaryMail();
@@ -123,6 +124,7 @@ function menuProcessSecretary() {
 }
 
 function menuEnableSecretary() {
+  if (!isAiEnabled_()) { alertAiOffForSecretary_('開啟秘書自動處理'); return; }
   // 觸發器在背景執行時沒辦法跳授權，所以建立前先確認權限都有勾
   ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, SECRETARY_SCOPES);
   runMenu_('開啟秘書自動處理', function () {
@@ -141,6 +143,10 @@ function menuDisableSecretary() {
 
 // ============ 主流程（設定觸發器時請選這個）============
 function processSecretaryMail() {
+  if (!isAiEnabled_()) {
+    console.warn('AI 已關閉，略過秘書處理。');
+    return { drafted: 0, quotes: 0, failed: 0, skipped: 0, priceSkipped: [] };
+  }
   const inbox = getOrCreateLabel_(SECRETARY_LABEL);
   const done = getOrCreateLabel_(SECRETARY_DONE_LABEL);
   const fail = getOrCreateLabel_(SECRETARY_FAIL_LABEL);

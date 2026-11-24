@@ -22,7 +22,7 @@
 |------|--------|--------------|
 | ① 排程 | 每天固定時間啟動 | ChatGPT Tasks／Apps Script 觸發器 |
 | ② 取資料 | 去查最新數字、讀來信 | 網路搜尋／Google Finance／CoinGecko／Gmail 標籤 |
-| ③ 整理 | 把數字、信件變成易讀的文字 | ChatGPT／Gemini |
+| ③ 整理 | 把數字、信件變成易讀的文字 | ChatGPT／OpenRouter 免費模型 |
 | ④ 推送 | 送到你看得到的地方 | app 通知／每天一封「今日總覽」（財經＋秘書待辦）／Gmail 草稿 |
 | ⑤ 存檔 | 留下來、可累積、可回頭比較 | 試算表「日報紀錄」「秘書紀錄」／Markdown 資料夾＋Obsidian |
 
@@ -63,7 +63,7 @@
 | Stage | 你會做出 | 工具（皆免費） |
 |---|---|---|
 | 1 | 完整的每日日報（app 內） | ChatGPT Tasks |
-| 2 | 數字可核對、每天寄到信箱的「今日總覽」（三種版面任選） | 一鍵副本的 Google Sheet＋Gemini |
+| 2 | 數字可核對、每天寄到信箱的「今日總覽」（三種版面任選） | 一鍵副本的 Google Sheet＋OpenRouter 免費模型 |
 | 3 | 每天自動累積的財經知識庫（加分題） | Markdown 資料夾＋Obsidian |
 | 4 | 客戶來信 → 回覆草稿＋報價單草稿 | 同一份 Sheet＋Gmail 標籤 |
 

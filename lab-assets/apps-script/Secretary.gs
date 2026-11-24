@@ -3,16 +3,16 @@
  *
  * 流程：
  *   1. 你在 Gmail 把要處理的信貼上標籤「AI秘書」（手動或用篩選器自動貼）
- *   2. Gemini 判讀信件：意圖、客戶、品項與數量、需要人工確認的事（prompts/04）
+ *   2. AI（OpenRouter 免費模型）判讀信件：意圖、客戶、品項與數量、需要人工確認的事（prompts/04）
  *   3. 價格一律由「報價表」分頁計算（AI 不碰數字）
- *   4. Gemini 寫回覆內文（prompts/05，禁止寫金額與承諾），系統把報價明細附在信末
+ *   4. AI 寫回覆內文（prompts/05，禁止寫金額與承諾），系統把報價明細附在信末
  *   5. 存成 Gmail「草稿」——不會寄出；有報價就另存一份 Markdown 到 FinLab-Vault/秘書
  *   6. 標籤換成「AI秘書/已處理」（失敗的換成「AI秘書/需人工」），並記一列到「秘書紀錄」分頁
  *   7. 隔天早上的「今日總覽」信會列出還沒確認的草稿（getSecretaryStatus_）
  *
- * ⚠️ 隱私：信件內容會送到 Gemini API。Gemini API 免費方案的資料可能被 Google 用於改進服務
- *    （以官網條款為準），課堂請只用 lab-assets/secretary/sample-emails.md 的虛構信件練習，
- *    不要把真實客戶個資、合約、報價送進免費方案。
+ * ⚠️ 隱私：信件內容會經過 OpenRouter 送到免費模型的提供者。部分免費模型的提供者可能保留或用輸入資料訓練模型
+ *    （依各提供者條款，以官網為準：https://openrouter.ai/docs/guides/privacy/provider-logging），
+ *    課堂請只用 lab-assets/secretary/sample-emails.md 的虛構信件練習，不要把真實客戶個資、合約、報價送進免費模型。
  */
 
 // ============ 可調整的設定 ============
@@ -198,7 +198,7 @@ function triageEmail_(msg, prices) {
     .replace('{from}', function () { return from; })
     .replace('{subject}', function () { return subject; })
     .replace('{body}', function () { return body; });
-  const t = parseJson_(callGemini_(prompt, { json: true }));
+  const t = parseJson_(callAi_(prompt, { json: true }));
   t.items = Array.isArray(t.items) ? t.items : [];
   t.unmatched = Array.isArray(t.unmatched) ? t.unmatched : [];
   t.needs_human = Array.isArray(t.needs_human) ? t.needs_human : [];
@@ -207,7 +207,7 @@ function triageEmail_(msg, prices) {
 
 function draftReply_(triage) {
   const json = JSON.stringify(triage, null, 2);
-  return callGemini_(REPLY_PROMPT.replace('{triage_json}', function () { return json; })).trim();
+  return callAi_(REPLY_PROMPT.replace('{triage_json}', function () { return json; })).trim();
 }
 
 /** 回覆內文不該有金額；萬一 AI 還是寫了，在最上面加【需人工確認】提醒 */
@@ -387,7 +387,16 @@ function getOrCreateLabel_(name) {
   return GmailApp.getUserLabelByName(name) || GmailApp.createLabel(name);
 }
 
-/** Gemini 偶爾會把 JSON 包在 ``` 裡，先剝掉再解析 */
+/** AI 偶爾會把 JSON 包在 ``` 裡，或在前後多講幾句話，先剝掉再解析 */
 function parseJson_(text) {
-  return JSON.parse(String(text).replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, ''));
+  const t = String(text).replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
+  try {
+    return JSON.parse(t);
+  } catch (err) {
+    // 免費模型有時會在 JSON 前後加一句說明：只取第一個 { 到最後一個 } 再試一次
+    const a = t.indexOf('{');
+    const b = t.lastIndexOf('}');
+    if (a === -1 || b <= a) throw new Error('AI 回傳的判讀結果不是 JSON，請再處理一次或改人工處理。');
+    return JSON.parse(t.slice(a, b + 1));
+  }
 }

@@ -8,7 +8,7 @@
 |------|--------|----------------|
 | Gmail 真實登入密碼 | 你帳號的總鑰匙 | **從頭到尾都不需要**。Apps Script 以「你的帳號授權」寄信 |
 | Google 應用程式密碼 (App Password) | 給舊式程式用的 16 碼專用密碼，可單獨撤銷 | 主線不用；選修（SMTP／n8n）才用 |
-| Gemini API key | 呼叫 AI 的鑰匙，外洩會被他人盜用額度 | 「一鍵設定」幫你存進 Apps Script「指令碼屬性」 |
+| OpenRouter API key | 呼叫 AI 的鑰匙（`sk-or-` 開頭），外洩會被他人盜用額度 | 「一鍵設定」幫你存進 Apps Script「指令碼屬性」 |
 | 客戶信件內容 | 別人的個資與商業資訊 | 課堂只用虛構信件；真實信件不送進免費 AI 方案 |
 | 知識庫（FinLab-Vault） | 你的日報、觀察、報價單 | 留在你自己的雲端硬碟與電腦；不整包分享 |
 
@@ -35,10 +35,10 @@
 - 用「① 一鍵設定」貼上，它會存進指令碼屬性；不要寫在 `Code.gs` 或表格儲存格。
 - 拿到 Sheet **編輯權**的人看得到指令碼屬性，所以分享只給「檢視」權限，或乾脆不分享。
 - 截圖前先檢查有沒有露出 key。
-- 外洩或不確定時：到 AI Studio 刪除並重建，再跑一次「① 一鍵設定」換新 key。
+- 外洩或不確定時：到 [OpenRouter Keys 頁面](https://openrouter.ai/settings/keys) 刪除並重建，再跑一次「① 一鍵設定」換新 key。
 
 ### 4. 客戶信件與免費 AI
-- **Gemini API 免費方案的輸入內容可能被 Google 用於改進服務**（以官網條款為準，查證日期 2026-10-31）。
+- **AI 摘要與秘書的內容會經過 OpenRouter 送到免費模型的提供者，部分提供者可能保留或用輸入資料訓練模型**（依各提供者條款，以官網為準，查證日期 2026-11-24：[Provider Logging](https://openrouter.ai/docs/guides/privacy/provider-logging)）。OpenRouter 本身預設不儲存提示內容（[Data Collection](https://openrouter.ai/docs/guides/privacy/data-collection)）。
 - 課堂只用 `lab-assets/secretary/sample-emails.md` 的虛構信件。
 - 回到工作上：真實客戶信件請改用付費方案或公司核准的 AI 工具，並先問過 IT／法務。
 

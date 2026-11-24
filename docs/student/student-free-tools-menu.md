@@ -3,16 +3,17 @@
 > 老師用 Grok Automation，一個工具就包辦排程、查資料、整理、推送。但你不一定有訂閱。
 > 這頁整理**現在（2026）能免費上手**的替代方案，依「積木」分類。
 
-> ⚠️ **免費額度會變**：以下為撰寫時（查證日期 2026-10-03；知識庫與秘書相關項目 2026-10-31）的狀況，**以各家官網為準**。
+> ⚠️ **免費額度會變**：以下為撰寫時（查證日期 2026-10-03；知識庫與秘書相關項目 2026-10-31；OpenRouter 項目 2026-11-24）的狀況，**以各家官網為準**。
 
 ## 「免費」的真相
 | 工具 | 免費到什麼程度 | 要留意 |
 |------|----------------|--------|
 | ChatGPT Tasks | 免費帳號可排程，上限約 3 個任務 | 觸發條件（如 Gmail、Slack 事件）為付費功能；通知方式依平台而異 |
-| Gemini（聊天 app）Scheduled Actions | 目前僅付費方案可用 | 免費版不能排程；但 Gemini API 有免費額度（Stage 2 使用） |
-| Gemini API（AI Studio） | 有免費額度，採用量限制 | 型號、額度會調整；超過會被限流 |
+| Gemini（聊天 app）Scheduled Actions | 目前僅付費方案可用 | 免費版不能排程（本課程的 AI 摘要改用 OpenRouter 免費模型） |
+| OpenRouter 免費模型（Stage 2、4 使用） | 用 Google 登入、不用綁卡；免費模型每分鐘 20 次、每天 50 次（[官方 Limits](https://openrouter.ai/docs/api/reference/limits)） | 免費模型名單常換，程式有備用模型；超過會被限流，台灣時間早上 8 點重置 |
+| Gemini API（AI Studio） | 有免費額度 | 新建的 Google 帳號可能被要求年齡驗證（上傳證件或自拍）才能用免費額度，所以本課程不採用 |
 | Google Sheets + Apps Script + Gmail | 免費（個人帳號） | 有每日寄信與執行時間配額，個人日報遠遠夠用；公司 Workspace 帳號可能被管理員限制 |
-| Gemini API 免費方案用在秘書 | 可用 | **輸入內容可能被用於改進服務**（以官網條款為準），真實客戶信件不要送進免費方案 |
+| OpenRouter 免費模型用在秘書 | 可用 | **部分免費模型的提供者可能保留或用輸入資料訓練模型**（[Provider Logging](https://openrouter.ai/docs/guides/privacy/provider-logging)），真實客戶信件不要送進免費模型 |
 | Obsidian | 個人與商業用途皆免費 | 付費的 Sync、Publish 本課程用不到 |
 | Google 雲端硬碟電腦版 | 免費（共用 15 GB 空間） | 公司電腦可能不能安裝 → 改用網頁下載 |
 | CoinGecko 公開端點 | 免 key 可查價格 | 有頻率限制，每天一次沒問題 |
@@ -53,7 +54,7 @@ Grok Automation、ChatGPT 付費方案、Gemini Pro 的 Scheduled Actions、n8n 
 
 ## 官網
 - ChatGPT — https://chatgpt.com
-- Google AI Studio — https://aistudio.google.com
+- OpenRouter — https://openrouter.ai（免費模型：https://openrouter.ai/models?max_price=0）
 - Apps Script — https://script.google.com
 - CoinGecko API — https://www.coingecko.com/en/api
 - Obsidian — https://obsidian.md

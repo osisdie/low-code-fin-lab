@@ -13,9 +13,9 @@
 |-------|------|----------------|----------|--------------|
 | 0 | 概念＋期望管理＋5 分鐘暖身 | ChatGPT Tasks | 第一個每日自動任務 | 只有一行字，資訊太少 |
 | 1 | No-Code：完整日報 | ChatGPT Tasks（免費上限 3 個任務） | 「龍蝦財經」風格的每日摘要 | 數字可能不準、格式不固定、只在 app 內 |
-| 2 | Low-Code：真數據＋今日總覽 | 一鍵副本的 Google Sheet、Apps Script、Gemini API、Gmail | 每天一封數字可核對的今日總覽（三種版面）＋「日報紀錄」趨勢表 | 資料源延遲、美國假日、表格寫不下自己的觀察 |
+| 2 | Low-Code：真數據＋今日總覽 | 一鍵副本的 Google Sheet、Apps Script、OpenRouter 免費模型、Gmail | 每天一封數字可核對的今日總覽（三種版面）＋「日報紀錄」趨勢表 | 資料源延遲、美國假日、表格寫不下自己的觀察 |
 | 3 | 知識庫（加分題） | Markdown 資料夾、Google 雲端硬碟電腦版、Obsidian | 會自己長大的財經知識庫＋儀表板 | 要裝軟體、欄位要自己維護 |
-| 4 | 商務秘書：信件 → 草稿 | 同一份 Sheet、Gmail 標籤、Gemini API | Gmail 回覆草稿＋報價單草稿＋「秘書紀錄」，隔天今日總覽列出待確認草稿 | AI 判讀會漏、免費方案不適合真實客戶資料 |
+| 4 | 商務秘書：信件 → 草稿 | 同一份 Sheet、Gmail 標籤、OpenRouter 免費模型 | Gmail 回覆草稿＋報價單草稿＋「秘書紀錄」，隔天今日總覽列出待確認草稿 | AI 判讀會漏、免費方案不適合真實客戶資料 |
 | 收尾 | 安全、免費的真相、行動清單 | — | 你的 1 週／1 月／3 月行動清單 | — |
 
 **為什麼這個順序？** 每一段都從上一段的「天花板」開始：先體驗 AI 排程有多方便（Stage 0–1），再親眼看到「AI 憑搜尋給的數字不一定準」，才有動機讓數字改由資料表提供（Stage 2）；想寫下自己的觀察、把資料串起來，就用知識庫（Stage 3，加分題）；最後把同一套積木換個用途，變成商務秘書（Stage 4）。
@@ -30,7 +30,7 @@ index.html, .nojekyll                 GitHub Pages 入口（導向 slides/handbo
 docs/student/
   student-stage-0-concepts.md         概念、全自動的邊界、ChatGPT Tasks 5 分鐘暖身
   student-stage-1-lab.md              ChatGPT Tasks 完整日報
-  student-stage-2-lab.md              一鍵副本 Sheet + Gemini + Gmail、三種版面、日報紀錄
+  student-stage-2-lab.md              一鍵副本 Sheet + OpenRouter + Gmail、三種版面、日報紀錄
   student-stage-3-obsidian-lab.md     Markdown 知識庫 + Obsidian
   student-stage-4-secretary-lab.md    商務秘書：信件 → 回覆草稿 + 報價單草稿
   student-free-tools-menu.md          免費工具選單、Markdown 檢視器比較、「免費的真相」

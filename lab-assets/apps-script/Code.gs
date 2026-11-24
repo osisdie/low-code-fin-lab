@@ -20,7 +20,8 @@
 
 // ============ 可調整的設定 ============
 const SHEET_NAME = '數據';          // 放 GOOGLEFINANCE 公式的分頁名稱
-const DEFAULT_MODEL = 'gemini-2.5-flash'; // 可在指令碼屬性 GEMINI_MODEL 覆寫（免費額度與型號以官網為準）
+const DEFAULT_MODEL = 'gemini-3.5-flash-lite'; // 可在指令碼屬性 GEMINI_MODEL 覆寫（免費額度與型號以官網為準，查證日期 2026-11-24）
+const GEMINI_RETRY_MS = 20000;      // 遇到 429（額度暫時用完）等多久再試一次
 const TRIGGER_HOUR = 8;             // 每天幾點寄出（依 appsscript.json 的時區：Asia/Taipei）
 const REPORT_TIMEZONE = 'Asia/Taipei';
 const DAILY_LOG_SHEET = '日報紀錄';   // 每天一列數字，不用裝任何軟體就能看趨勢（自動建立）
@@ -97,7 +98,7 @@ function setupWizard() {
   try {
     callGemini_('請只回答：OK');
   } catch (err) {
-    ui.alert('key 測試失敗', err.message + '\n\n請確認 key 有完整貼上，再點一次「① 一鍵設定」。', ui.ButtonSet.OK);
+    ui.alert('key 測試失敗', err.message + '\n\n處理好之後，再點一次「① 一鍵設定」。', ui.ButtonSet.OK);
     return;
   }
 
@@ -297,30 +298,79 @@ function fetchYahooItems_() {
 
 // ============ Gemini ============
 function buildPrompt_(dateStr, data) {
-  return PROMPT_TEMPLATE.replace('{date}', dateStr).replace('{data_json}', JSON.stringify(data, null, 2));
+  // 用函式當替換值：資料裡的 $ 符號不會被當成特殊字元
+  return PROMPT_TEMPLATE
+    .replace('{date}', function () { return dateStr; })
+    .replace('{data_json}', function () { return JSON.stringify(data, null, 2); });
 }
 
-/** opts.json = true 時要求 Gemini 回傳 JSON（秘書判讀信件用） */
+/** opts.json = true 時要求 Gemini 回傳 JSON（秘書判讀信件用）；失敗時丟出中文說明 */
 function callGemini_(prompt, opts) {
   opts = opts || {};
   const key = getProp_('GEMINI_API_KEY');
-  if (!key) throw new Error('尚未設定指令碼屬性 GEMINI_API_KEY');
+  if (!key) throw new Error('尚未設定 Gemini key，請先點選單「① 一鍵設定」。');
   const model = getProp_('GEMINI_MODEL') || DEFAULT_MODEL;
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent';
-  const res = UrlFetchApp.fetch(url, {
-    method: 'post',
-    contentType: 'application/json',
-    headers: { 'x-goog-api-key': key },
-    payload: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: opts.json ? { temperature: 0.2, responseMimeType: 'application/json' } : { temperature: 0.2 },
-    }),
-    muteHttpExceptions: true,
-  });
-  if (res.getResponseCode() !== 200) {
-    throw new Error('Gemini HTTP ' + res.getResponseCode() + '：' + res.getContentText().slice(0, 200));
+  const payload = { contents: [{ parts: [{ text: prompt }] }] };
+  if (opts.json) payload.generationConfig = { responseMimeType: 'application/json' };
+
+  let res;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    res = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'x-goog-api-key': key },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    });
+    if (res.getResponseCode() !== 429 || attempt === 2) break;
+    Utilities.sleep(GEMINI_RETRY_MS); // 每分鐘額度用完時，等一下再試一次
   }
-  return JSON.parse(res.getContentText()).candidates[0].content.parts[0].text;
+  if (res.getResponseCode() !== 200) throw new Error(geminiHttpError_(res.getResponseCode(), res.getContentText(), model));
+
+  let j;
+  try {
+    j = JSON.parse(res.getContentText());
+  } catch (err) {
+    throw new Error('Gemini 回傳的內容看不懂，請稍後再試。');
+  }
+  if (j.promptFeedback && j.promptFeedback.blockReason) {
+    throw new Error('Gemini 拒絕處理這段內容（原因：' + j.promptFeedback.blockReason + '）。請換一封信或調整內容再試。');
+  }
+  const cand = j.candidates && j.candidates[0];
+  if (!cand) throw new Error('Gemini 沒有回傳任何內容，請稍後再試。');
+  // 只取一般文字，略過「思考」片段；有多段就接起來
+  const text = ((cand.content && cand.content.parts) || [])
+    .filter(function (p) { return !p.thought && typeof p.text === 'string'; })
+    .map(function (p) { return p.text; })
+    .join('');
+  const reason = cand.finishReason || '';
+  if (reason && reason !== 'STOP' && reason !== 'MAX_TOKENS') {
+    throw new Error('Gemini 中途停止（原因：' + reason + '，通常是內容被安全機制擋下）。請換一封信或調整內容再試。');
+  }
+  if (!text.trim()) throw new Error('Gemini 回傳空白（結束原因：' + (reason || '未知') + '），請稍後再試。');
+  if (reason === 'MAX_TOKENS') console.warn('Gemini 回覆太長被截斷');
+  return text;
+}
+
+/** 把 Gemini 的 HTTP 錯誤翻成學員看得懂的話 */
+function geminiHttpError_(code, body, model) {
+  const raw = String(body || '');
+  if (code === 429) {
+    return 'Gemini 免費額度暫時用完（429）。等一分鐘再試；如果一整天都失敗，代表今天的額度用完了，' +
+      '約台灣時間下午 3～4 點重置後再試。';
+  }
+  if (/API_KEY_INVALID|API key not valid/i.test(raw) || code === 401) {
+    return 'Gemini key 無效：請確認 key 有完整貼上（沒有多空白、沒有少字），或到 AI Studio 重新建立一把。';
+  }
+  if (code === 404) {
+    return '找不到模型「' + model + '」：這個型號可能已停用，或你的帳號不能使用。' +
+      '若你在指令碼屬性設過 GEMINI_MODEL，請刪掉或改成官網列出的型號（不填就用預設 ' + DEFAULT_MODEL + '）。';
+  }
+  if (code === 403) {
+    return 'Gemini 拒絕存取（403）：key 可能沒有權限或所在地區不支援，請到 AI Studio 確認 key 的狀態。';
+  }
+  return 'Gemini 錯誤（HTTP ' + code + '）：' + raw.slice(0, 200);
 }
 
 /** 單獨測試 Gemini key 是否可用（不會印出 key） */

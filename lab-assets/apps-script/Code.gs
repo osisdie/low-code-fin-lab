@@ -463,6 +463,33 @@ function fxLine_(it) {
   return it.name + '：' + it.price + pct;
 }
 
+// 常見幣別的中文寫法（摘要可能寫「美元/台幣」「美元兌新台幣」）
+const FX_ZH = {
+  USD: ['美元', '美金'], TWD: ['新台幣', '台幣', '新臺幣', '臺幣'], JPY: ['日圓', '日幣', '日元'],
+  EUR: ['歐元'], CNY: ['人民幣'], HKD: ['港幣', '港元'], GBP: ['英鎊'], KRW: ['韓元', '韓圜'], AUD: ['澳幣', '澳元'],
+};
+
+/** 比對前統一：全形轉半形、去空白、英文轉大寫、「／」轉「/」 */
+function fxNormalize_(s) {
+  return String(s).normalize('NFKC').replace(/\s+/g, '').toUpperCase();
+}
+
+/** 一組匯率在摘要裡可能的寫法：分頁名稱、USD/TWD、USDTWD、USD-TWD、美元/台幣、美元兌台幣… */
+function fxAliases_(it) {
+  const out = [fxNormalize_(it.name)];
+  const m = String(it.symbol).trim().toUpperCase().match(/^CURRENCY:([A-Z]{3})([A-Z]{3})$/);
+  if (m) {
+    const a = m[1], b = m[2];
+    out.push(a + '/' + b, a + b, a + '-' + b);
+    (FX_ZH[a] || []).forEach(function (za) {
+      (FX_ZH[b] || []).forEach(function (zb) {
+        ['/', '兌', '對', ''].forEach(function (sep) { out.push(za + sep + zb); });
+      });
+    });
+  }
+  return out.filter(function (x, i) { return x && out.indexOf(x) === i; });
+}
+
 /**
  * 摘要的【匯率】段落漏寫了哪組匯率，就由程式依原始數據補上一行（不再交給 AI）。
  * 有【匯率】標題就補在標題下面；連標題都沒有就在摘要最前面加一段。
@@ -470,7 +497,10 @@ function fxLine_(it) {
 function ensureFxLines_(summary, data) {
   const text = String(summary);
   const fx = data.items.filter(isFxItem_);
-  const missing = fx.filter(function (it) { return text.indexOf(it.name) === -1; });
+  const flat = fxNormalize_(text);
+  const missing = fx.filter(function (it) {
+    return !fxAliases_(it).some(function (a) { return flat.indexOf(a) !== -1; });
+  });
   if (!missing.length) return text;
   const lines = missing.map(fxLine_);
   const i = text.indexOf('【匯率】');

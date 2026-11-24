@@ -25,6 +25,13 @@ const DRAFT_MARK = '【AI 草稿，寄出前請人工確認】';
 const TAX_RATE = 0.05;               // 營業稅率（依你的實際情況調整）
 const MAX_THREADS_PER_RUN = 5;       // 一次最多處理幾封，避免用光免費額度
 const MAX_BODY_CHARS = 4000;         // 信件內文太長時只送前面這麼多字給 AI
+const SECRETARY_SCOPES = [           // 秘書需要的權限（建立觸發器前先確認）
+  'https://www.googleapis.com/auth/spreadsheets.currentonly',
+  'https://www.googleapis.com/auth/script.external_request',
+  'https://www.googleapis.com/auth/script.scriptapp',
+  'https://www.googleapis.com/auth/drive',
+  'https://mail.google.com/',
+];
 
 // 判讀提示詞（與 lab-assets/prompts/04-secretary-triage.txt 同步；修改請兩邊一起改）
 const TRIAGE_PROMPT = [
@@ -76,23 +83,34 @@ const REPLY_PROMPT = [
 
 // ============ 選單 ============
 function menuProcessSecretary() {
-  const r = processSecretaryMail();
-  SpreadsheetApp.getUi().alert('秘書處理完成',
-    '已建立 ' + r.drafted + ' 封回覆草稿（在 Gmail「草稿」），' + r.quotes + ' 份報價單草稿（在「' + VAULT_ROOT_NAME + '/秘書」）。\n' +
-    (r.failed ? r.failed + ' 封處理失敗，已貼上「' + SECRETARY_FAIL_LABEL + '」標籤，請人工處理。\n' : '') +
-    (r.drafted + r.failed === 0 ? '\n沒有找到貼著「' + SECRETARY_LABEL + '」標籤的信。' : '\n提醒：草稿不會自動寄出，請逐封檢查【需人工確認】的地方。'),
-    SpreadsheetApp.getUi().ButtonSet.OK);
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, SECRETARY_SCOPES);
+  runMenu_('秘書處理', function () {
+    const r = processSecretaryMail();
+    SpreadsheetApp.getUi().alert('秘書處理完成',
+      '已建立 ' + r.drafted + ' 封回覆草稿（在 Gmail「草稿」），' + r.quotes + ' 份報價單草稿（在「' + VAULT_ROOT_NAME + '/秘書」）。\n' +
+      (r.failed ? r.failed + ' 封處理失敗，已貼上「' + SECRETARY_FAIL_LABEL + '」標籤，請人工處理。\n' : '') +
+      (r.skipped ? r.skipped + ' 封已經有 AI 草稿，這次略過（不會重複建立）。\n' : '') +
+      (r.priceSkipped.length ? '報價表有 ' + r.priceSkipped.length + ' 列單價看不懂、已略過：' + r.priceSkipped.join('、') + '。請把 B 欄改成數字。\n' : '') +
+      (r.drafted + r.failed + r.skipped === 0 ? '\n沒有找到貼著「' + SECRETARY_LABEL + '」標籤的信。' : '\n提醒：草稿不會自動寄出，請逐封檢查【需人工確認】的地方。'),
+      SpreadsheetApp.getUi().ButtonSet.OK);
+  });
 }
 
 function menuEnableSecretary() {
-  removeTriggers_('processSecretaryMail');
-  ScriptApp.newTrigger('processSecretaryMail').timeBased().everyHours(1).create();
-  SpreadsheetApp.getUi().alert('已開啟 ✅ 之後每小時檢查一次「' + SECRETARY_LABEL + '」標籤的信，只建立草稿、不會寄出。');
+  // 觸發器在背景執行時沒辦法跳授權，所以建立前先確認權限都有勾
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, SECRETARY_SCOPES);
+  runMenu_('開啟秘書自動處理', function () {
+    removeTriggers_('processSecretaryMail');
+    ScriptApp.newTrigger('processSecretaryMail').timeBased().everyHours(1).create();
+    SpreadsheetApp.getUi().alert('已開啟 ✅ 之後每小時檢查一次「' + SECRETARY_LABEL + '」標籤的信，只建立草稿、不會寄出。');
+  });
 }
 
 function menuDisableSecretary() {
-  removeTriggers_('processSecretaryMail');
-  SpreadsheetApp.getUi().alert('已停止秘書自動處理。');
+  runMenu_('停止秘書自動處理', function () {
+    removeTriggers_('processSecretaryMail');
+    SpreadsheetApp.getUi().alert('已停止秘書自動處理。');
+  });
 }
 
 // ============ 主流程（設定觸發器時請選這個）============
@@ -101,7 +119,7 @@ function processSecretaryMail() {
   const done = getOrCreateLabel_(SECRETARY_DONE_LABEL);
   const fail = getOrCreateLabel_(SECRETARY_FAIL_LABEL);
   const prices = readPriceList_();
-  const result = { drafted: 0, quotes: 0, failed: 0 };
+  const result = { drafted: 0, quotes: 0, failed: 0, skipped: 0, priceSkipped: [] };
 
   inbox.getThreads(0, MAX_THREADS_PER_RUN).forEach(function (thread) {
     try {

@@ -25,6 +25,18 @@ const GEMINI_RETRY_MS = 20000;      // 遇到 429（額度暫時用完）等多�
 const TRIGGER_HOUR = 8;             // 每天幾點寄出（依 appsscript.json 的時區：Asia/Taipei）
 const REPORT_TIMEZONE = 'Asia/Taipei';
 const DAILY_LOG_SHEET = '日報紀錄';   // 每天一列數字，不用裝任何軟體就能看趨勢（自動建立）
+const ERROR_LOG_SHEET = '錯誤紀錄';   // 選單或秘書出錯時記一列，方便講師幫忙看（自動建立）
+
+// 授權畫面可以只勾部分權限；開始某個功能前，先確認它需要的權限都有勾（沒勾會再跳一次授權）
+const DAILY_SCOPES = [
+  'https://www.googleapis.com/auth/spreadsheets.currentonly',
+  'https://www.googleapis.com/auth/script.send_mail',
+  'https://www.googleapis.com/auth/script.external_request',
+  'https://www.googleapis.com/auth/script.scriptapp',
+  'https://www.googleapis.com/auth/drive',
+  'https://mail.google.com/',
+  'https://www.googleapis.com/auth/userinfo.email',
+];
 
 // 由 Yahoo Finance 公開圖表端點補抓的項目（Google Finance 沒有現貨黃金／美債殖利率）
 // key 是存進 Markdown frontmatter 的欄位名稱（Obsidian 儀表板用）
@@ -82,6 +94,12 @@ function onOpen() {
 
 /** 一鍵設定：收 Gemini key → 測試 → 建立知識庫資料夾與起始檔案 */
 function setupWizard() {
+  // 一次確認所有權限：授權畫面上沒勾到的，這裡會再跳出來請你補勾
+  ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
+  runMenu_('一鍵設定', setupWizardSteps_);
+}
+
+function setupWizardSteps_() {
   const ui = SpreadsheetApp.getUi();
   const props = PropertiesService.getScriptProperties();
   const hasKey = !!props.getProperty('GEMINI_API_KEY');
@@ -102,7 +120,17 @@ function setupWizard() {
     return;
   }
 
-  const root = setupVault_();
+  let root;
+  try {
+    root = setupVault_();
+  } catch (err) {
+    logError_('一鍵設定：建立知識庫資料夾', err);
+    ui.alert('知識庫資料夾建立失敗',
+      'Gemini key 已經測試成功並存好了，但在雲端硬碟建立「' + VAULT_ROOT_NAME + '」時出錯：\n' + err.message + '\n\n' +
+      '最常見的原因是授權時沒有勾選雲端硬碟權限。請再點一次「① 一鍵設定」（key 留空就會沿用），授權畫面全部勾選後按「允許」。',
+      ui.ButtonSet.OK);
+    return;
+  }
   ui.alert('設定完成 ✅',
     'Gemini key 測試成功。\n' +
     '已在你的雲端硬碟建立資料夾「' + root.getName() + '」（Obsidian 知識庫，Stage 3 會用到）。\n\n' +
@@ -111,19 +139,25 @@ function setupWizard() {
 }
 
 function menuSendNow() {
-  sendDailyReport();
-  SpreadsheetApp.getUi().alert('已寄出 ✅ 請到信箱查看。\n數字也記進「' + DAILY_LOG_SHEET + '」分頁，並存進雲端硬碟「' + VAULT_ROOT_NAME + '/日報」。');
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, DAILY_SCOPES);
+  runMenu_('寄出今日總覽', function () {
+    sendDailyReport();
+    SpreadsheetApp.getUi().alert('已寄出 ✅ 請到信箱查看。\n數字也記進「' + DAILY_LOG_SHEET + '」分頁，並存進雲端硬碟「' + VAULT_ROOT_NAME + '/日報」。');
+  });
 }
 
 /** 寄出三種版面的樣張（只呼叫一次 Gemini），讓你比較後再用「選擇信件版面」決定 */
 function menuSendSamples() {
-  const ctx = buildBriefingContext_();
-  const to = getProp_('REPORT_TO') || Session.getActiveUser().getEmail();
-  Object.keys(REPORT_TEMPLATES).forEach(function (key) {
-    const out = renderBriefing_(key, ctx);
-    MailApp.sendEmail({ to: to, subject: '【樣張：' + REPORT_TEMPLATES[key].name + '】' + out.subject, body: out.text, htmlBody: out.html });
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, DAILY_SCOPES);
+  runMenu_('寄出版面樣張', function () {
+    const ctx = buildBriefingContext_();
+    const to = getReportTo_();
+    Object.keys(REPORT_TEMPLATES).forEach(function (key) {
+      const out = renderBriefing_(key, ctx);
+      MailApp.sendEmail({ to: to, subject: '【樣張：' + REPORT_TEMPLATES[key].name + '】' + out.subject, body: out.text, htmlBody: out.html });
+    });
+    SpreadsheetApp.getUi().alert('已寄出 3 封樣張 ✅ 看完喜歡哪一種，再點「🎨 選擇信件版面」。');
   });
-  SpreadsheetApp.getUi().alert('已寄出 3 封樣張 ✅ 看完喜歡哪一種，再點「🎨 選擇信件版面」。');
 }
 
 function menuChooseTemplate() {
@@ -143,20 +177,25 @@ function menuChooseTemplate() {
 }
 
 function menuEnableDaily() {
-  setupDailyTrigger();
-  SpreadsheetApp.getUi().alert('已開啟 ✅ 之後每天 ' + TRIGGER_HOUR + ':00 左右自動寄出（Google 會在該小時內執行）。');
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, DAILY_SCOPES);
+  runMenu_('開啟每日自動寄送', function () {
+    setupDailyTrigger();
+    SpreadsheetApp.getUi().alert('已開啟 ✅ 之後每天 ' + TRIGGER_HOUR + ':00 左右自動寄出（Google 會在該小時內執行）。');
+  });
 }
 
 function menuDisableDaily() {
-  removeTriggers_('sendDailyReport');
-  SpreadsheetApp.getUi().alert('已停止每日自動寄送。');
+  runMenu_('停止每日自動寄送', function () {
+    removeTriggers_('sendDailyReport');
+    SpreadsheetApp.getUi().alert('已停止每日自動寄送。');
+  });
 }
 
 // ============ 主流程（設定觸發器時請選這個）============
 function sendDailyReport() {
   const ctx = buildBriefingContext_();
   const out = renderBriefing_(getTemplateKey_(), ctx);
-  const to = getProp_('REPORT_TO') || Session.getActiveUser().getEmail();
+  const to = getReportTo_();
   MailApp.sendEmail({ to: to, subject: out.subject, body: out.text, htmlBody: out.html });
 
   // 以下失敗都不影響寄信（例如還沒跑過一鍵設定）
@@ -388,6 +427,8 @@ function testGeminiKey() {
 // ============ 排程 ============
 /** 執行一次即可：建立每天 TRIGGER_HOUR 點寄信的觸發器（先刪舊的避免重複） */
 function setupDailyTrigger() {
+  // 觸發器在背景執行時沒辦法跳授權，所以建立前先確認權限都有勾
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, DAILY_SCOPES);
   removeTriggers_('sendDailyReport');
   ScriptApp.newTrigger('sendDailyReport').timeBased().everyDays(1).atHour(TRIGGER_HOUR).create();
 }
@@ -398,7 +439,49 @@ function removeTriggers_(handlerName) {
   });
 }
 
+// ============ 錯誤處理（學員看得懂的訊息）============
+
+/** 選單共用：出錯時用中文對話框說明，並記一列到「錯誤紀錄」分頁 */
+function runMenu_(title, fn) {
+  try {
+    fn();
+  } catch (err) {
+    logError_(title, err);
+    const ui = SpreadsheetApp.getUi();
+    ui.alert(title + '失敗', friendlyError_(err) + '\n\n（也記在試算表「' + ERROR_LOG_SHEET + '」分頁，需要協助時給講師看這一列）', ui.ButtonSet.OK);
+  }
+}
+
+function friendlyError_(err) {
+  const msg = String((err && err.message) || err);
+  if (/authoriz|permission|not sufficient|權限/i.test(msg)) {
+    return '權限不足：' + msg + '\n\n請點「① 一鍵設定」重新授權，授權畫面的權限全部勾選後按「允許」。';
+  }
+  return msg;
+}
+
+function logError_(where, err) {
+  console.error(where + '：' + ((err && err.stack) || err));
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName(ERROR_LOG_SHEET);
+    if (!sheet) {
+      sheet = ss.insertSheet(ERROR_LOG_SHEET);
+      sheet.appendRow(['時間', '在做什麼', '錯誤訊息']);
+      sheet.setFrozenRows(1);
+    }
+    sheet.appendRow([new Date(), where, String((err && err.message) || err)]);
+  } catch (e) {
+    // 連紀錄都寫不進去就算了，不要蓋掉原本的錯誤
+  }
+}
+
 // ============ 小工具 ============
+/** 收件信箱：指令碼屬性 REPORT_TO，不填就寄給執行程式的帳號（也就是你自己） */
+function getReportTo_() {
+  return getProp_('REPORT_TO') || Session.getEffectiveUser().getEmail();
+}
+
 function getProp_(name) {
   return PropertiesService.getScriptProperties().getProperty(name);
 }

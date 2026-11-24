@@ -20,10 +20,23 @@
 
 // ============ 可調整的設定 ============
 const SHEET_NAME = '數據';          // 放 GOOGLEFINANCE 公式的分頁名稱
-const DEFAULT_MODEL = 'gemini-2.5-flash'; // 可在指令碼屬性 GEMINI_MODEL 覆寫（免費額度與型號以官網為準）
+const DEFAULT_MODEL = 'gemini-3.5-flash-lite'; // 可在指令碼屬性 GEMINI_MODEL 覆寫（免費額度與型號以官網為準，查證日期 2026-11-24）
+const GEMINI_RETRY_MS = 20000;      // 遇到 429（額度暫時用完）等多久再試一次
 const TRIGGER_HOUR = 8;             // 每天幾點寄出（依 appsscript.json 的時區：Asia/Taipei）
 const REPORT_TIMEZONE = 'Asia/Taipei';
 const DAILY_LOG_SHEET = '日報紀錄';   // 每天一列數字，不用裝任何軟體就能看趨勢（自動建立）
+const ERROR_LOG_SHEET = '錯誤紀錄';   // 選單或秘書出錯時記一列，方便講師幫忙看（自動建立）
+
+// 授權畫面可以只勾部分權限；開始某個功能前，先確認它需要的權限都有勾（沒勾會再跳一次授權）
+const DAILY_SCOPES = [
+  'https://www.googleapis.com/auth/spreadsheets.currentonly',
+  'https://www.googleapis.com/auth/script.send_mail',
+  'https://www.googleapis.com/auth/script.external_request',
+  'https://www.googleapis.com/auth/script.scriptapp',
+  'https://www.googleapis.com/auth/drive',
+  'https://mail.google.com/',
+  'https://www.googleapis.com/auth/userinfo.email',
+];
 
 // 由 Yahoo Finance 公開圖表端點補抓的項目（Google Finance 沒有現貨黃金／美債殖利率）
 // key 是存進 Markdown frontmatter 的欄位名稱（Obsidian 儀表板用）
@@ -41,7 +54,7 @@ const PROMPT_TEMPLATE = [
   '1. 只能使用【今日數據】裡的數字。沒有的欄位（值為 null 或「查無資料」）就寫「查無資料」，絕對不要憑記憶或猜測補數字。',
   '2. 漲跌用 📈（上漲）／📉（下跌），標示百分比；百分比已提供，不要自己重算。',
   '3. 每個項目用一句話描述變化即可；若數據裡沒有原因，就不要編造原因。',
-  '4. 美股欄位若 usMarketOpen 為 false，要明確寫「美股因假期休市（沿用 ○○ 收盤數字）」。',
+  '4. 美股欄位若 usMarketOpen 為 false，要明確寫「美股休市（沿用 X 收盤數字）」，X 直接用【今日數據】的 usLastCloseDate，不要自己推算日期。',
   '5. 重點總數控制在 8～10 項，優先呈現漲跌幅較大的。',
   '6. 禁止任何投資建議、買賣建議、預測或個人觀點。',
   '7. 全程使用自然、專業的繁體中文。',
@@ -81,6 +94,12 @@ function onOpen() {
 
 /** 一鍵設定：收 Gemini key → 測試 → 建立知識庫資料夾與起始檔案 */
 function setupWizard() {
+  // 一次確認所有權限：授權畫面上沒勾到的，這裡會再跳出來請你補勾
+  ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
+  runMenu_('一鍵設定', setupWizardSteps_);
+}
+
+function setupWizardSteps_() {
   const ui = SpreadsheetApp.getUi();
   const props = PropertiesService.getScriptProperties();
   const hasKey = !!props.getProperty('GEMINI_API_KEY');
@@ -97,11 +116,21 @@ function setupWizard() {
   try {
     callGemini_('請只回答：OK');
   } catch (err) {
-    ui.alert('key 測試失敗', err.message + '\n\n請確認 key 有完整貼上，再點一次「① 一鍵設定」。', ui.ButtonSet.OK);
+    ui.alert('key 測試失敗', err.message + '\n\n處理好之後，再點一次「① 一鍵設定」。', ui.ButtonSet.OK);
     return;
   }
 
-  const root = setupVault_();
+  let root;
+  try {
+    root = setupVault_();
+  } catch (err) {
+    logError_('一鍵設定：建立知識庫資料夾', err);
+    ui.alert('知識庫資料夾建立失敗',
+      'Gemini key 已經測試成功並存好了，但在雲端硬碟建立「' + VAULT_ROOT_NAME + '」時出錯：\n' + err.message + '\n\n' +
+      '最常見的原因是授權時沒有勾選雲端硬碟權限。請再點一次「① 一鍵設定」（key 留空就會沿用），授權畫面全部勾選後按「允許」。',
+      ui.ButtonSet.OK);
+    return;
+  }
   ui.alert('設定完成 ✅',
     'Gemini key 測試成功。\n' +
     '已在你的雲端硬碟建立資料夾「' + root.getName() + '」（Obsidian 知識庫，Stage 3 會用到）。\n\n' +
@@ -110,19 +139,25 @@ function setupWizard() {
 }
 
 function menuSendNow() {
-  sendDailyReport();
-  SpreadsheetApp.getUi().alert('已寄出 ✅ 請到信箱查看。\n數字也記進「' + DAILY_LOG_SHEET + '」分頁，並存進雲端硬碟「' + VAULT_ROOT_NAME + '/日報」。');
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, DAILY_SCOPES);
+  runMenu_('寄出今日總覽', function () {
+    sendDailyReport();
+    SpreadsheetApp.getUi().alert('已寄出 ✅ 請到信箱查看。\n數字也記進「' + DAILY_LOG_SHEET + '」分頁，並存進雲端硬碟「' + VAULT_ROOT_NAME + '/日報」。');
+  });
 }
 
 /** 寄出三種版面的樣張（只呼叫一次 Gemini），讓你比較後再用「選擇信件版面」決定 */
 function menuSendSamples() {
-  const ctx = buildBriefingContext_();
-  const to = getProp_('REPORT_TO') || Session.getActiveUser().getEmail();
-  Object.keys(REPORT_TEMPLATES).forEach(function (key) {
-    const out = renderBriefing_(key, ctx);
-    MailApp.sendEmail({ to: to, subject: '【樣張：' + REPORT_TEMPLATES[key].name + '】' + out.subject, body: out.text, htmlBody: out.html });
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, DAILY_SCOPES);
+  runMenu_('寄出版面樣張', function () {
+    const ctx = buildBriefingContext_();
+    const to = getReportTo_();
+    Object.keys(REPORT_TEMPLATES).forEach(function (key) {
+      const out = renderBriefing_(key, ctx);
+      MailApp.sendEmail({ to: to, subject: '【樣張：' + REPORT_TEMPLATES[key].name + '】' + out.subject, body: out.text, htmlBody: out.html });
+    });
+    SpreadsheetApp.getUi().alert('已寄出 3 封樣張 ✅ 看完喜歡哪一種，再點「🎨 選擇信件版面」。');
   });
-  SpreadsheetApp.getUi().alert('已寄出 3 封樣張 ✅ 看完喜歡哪一種，再點「🎨 選擇信件版面」。');
 }
 
 function menuChooseTemplate() {
@@ -142,20 +177,25 @@ function menuChooseTemplate() {
 }
 
 function menuEnableDaily() {
-  setupDailyTrigger();
-  SpreadsheetApp.getUi().alert('已開啟 ✅ 之後每天 ' + TRIGGER_HOUR + ':00 左右自動寄出（Google 會在該小時內執行）。');
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, DAILY_SCOPES);
+  runMenu_('開啟每日自動寄送', function () {
+    setupDailyTrigger();
+    SpreadsheetApp.getUi().alert('已開啟 ✅ 之後每天 ' + TRIGGER_HOUR + ':00 左右自動寄出（Google 會在該小時內執行）。');
+  });
 }
 
 function menuDisableDaily() {
-  removeTriggers_('sendDailyReport');
-  SpreadsheetApp.getUi().alert('已停止每日自動寄送。');
+  runMenu_('停止每日自動寄送', function () {
+    removeTriggers_('sendDailyReport');
+    SpreadsheetApp.getUi().alert('已停止每日自動寄送。');
+  });
 }
 
 // ============ 主流程（設定觸發器時請選這個）============
 function sendDailyReport() {
   const ctx = buildBriefingContext_();
   const out = renderBriefing_(getTemplateKey_(), ctx);
-  const to = getProp_('REPORT_TO') || Session.getActiveUser().getEmail();
+  const to = getReportTo_();
   MailApp.sendEmail({ to: to, subject: out.subject, body: out.text, htmlBody: out.html });
 
   // 以下失敗都不影響寄信（例如還沒跑過一鍵設定）
@@ -178,12 +218,18 @@ function buildBriefingContext_() {
   const data = {
     date: dateStr,
     usMarketOpen: isUsWeekday_(now),
+    usLastCloseDate: lastUsCloseDate_(now), // 美股休市時摘要要寫的「沿用哪天收盤」，由程式算，不讓 AI 推算
     items: [].concat(readSheetItems_(), fetchYahooItems_(), fetchBitcoin_()),
   };
 
   let summary;
   try {
     summary = callGemini_(buildPrompt_(dateStr, data));
+    const odd = checkSummaryNumbers_(summary, data);
+    if (odd.length) {
+      summary = '⚠️ 自動檢查：摘要裡有數字在原始數據找不到（' + odd.slice(0, 5).join('、') + (odd.length > 5 ? '…' : '') +
+        '），可能是 AI 抄錯或自己換算，請以下方「原始數據」為準。\n\n' + summary;
+    }
   } catch (err) {
     summary = '（AI 摘要暫時失敗，以下僅列出原始數據。原因：' + err.message + '）';
   }
@@ -263,7 +309,14 @@ function readSheetItems_() {
   return rows
     .filter(function (r) { return r[0]; })
     .map(function (r) {
-      return { name: r[0], symbol: r[1], key: noteKey_(r[0]), price: numOrNull_(r[2]), prevClose: numOrNull_(r[3]), changePct: numOrNull_(r[4]), source: 'Google Finance' };
+      // 匯率數字小（例如 JPY/TWD 0.2134），保留 4 位小數；其他保留 2 位
+      const digits = /^CURRENCY:/i.test(String(r[1])) ? 4 : 2;
+      const price = numOrNull_(r[2], digits);
+      const prevClose = numOrNull_(r[3], digits);
+      let changePct = numOrNull_(r[4]);
+      // E 欄空白（部分匯率沒有 changepct）但有現價與前一收盤時，自己算；都沒有就維持「查無資料」
+      if (changePct === null && price !== null && prevClose) changePct = round2_((r[2] / r[3] - 1) * 100);
+      return { name: r[0], symbol: r[1], key: noteKey_(r[0]), price: price, prevClose: prevClose, changePct: changePct, source: 'Google Finance' };
     });
 }
 
@@ -297,30 +350,108 @@ function fetchYahooItems_() {
 
 // ============ Gemini ============
 function buildPrompt_(dateStr, data) {
-  return PROMPT_TEMPLATE.replace('{date}', dateStr).replace('{data_json}', JSON.stringify(data, null, 2));
+  // 用函式當替換值：資料裡的 $ 符號不會被當成特殊字元
+  return PROMPT_TEMPLATE
+    .replace('{date}', function () { return dateStr; })
+    .replace('{data_json}', function () { return JSON.stringify(data, null, 2); });
 }
 
-/** opts.json = true 時要求 Gemini 回傳 JSON（秘書判讀信件用） */
+/**
+ * 找出摘要裡「原始數據沒有」的數字（AI 偶爾會抄錯或自己算）。
+ * 允許的數字：各項目的現價、前一收盤、漲跌幅（含四捨五入到摘要寫的位數）、名稱與代碼裡的數字、日期與美股最近收盤日。
+ */
+function checkSummaryNumbers_(summary, data) {
+  const known = [];
+  const addFromText = function (text) {
+    (String(text === null || text === undefined ? '' : text).match(/\d+(?:\.\d+)?/g) || [])
+      .forEach(function (n) { known.push(Number(n)); });
+  };
+  addFromText(data.date);
+  addFromText(data.usLastCloseDate);
+  data.items.forEach(function (it) {
+    addFromText(it.name);
+    addFromText(it.symbol);
+    [it.price, it.prevClose, it.changePct].forEach(function (v) {
+      if (typeof v === 'number' && isFinite(v)) known.push(Math.abs(v));
+    });
+  });
+  const odd = [];
+  (String(summary).match(/\d[\d,]*(?:\.\d+)?/g) || []).forEach(function (raw) {
+    const n = Number(raw.replace(/,/g, ''));
+    const decimals = (raw.split('.')[1] || '').length;
+    const ok = known.some(function (v) { return v === n || roundTo_(v, decimals) === n; });
+    if (!ok && odd.indexOf(raw) === -1) odd.push(raw);
+  });
+  return odd;
+}
+
+/** opts.json = true 時要求 Gemini 回傳 JSON（秘書判讀信件用）；失敗時丟出中文說明 */
 function callGemini_(prompt, opts) {
   opts = opts || {};
   const key = getProp_('GEMINI_API_KEY');
-  if (!key) throw new Error('尚未設定指令碼屬性 GEMINI_API_KEY');
+  if (!key) throw new Error('尚未設定 Gemini key，請先點選單「① 一鍵設定」。');
   const model = getProp_('GEMINI_MODEL') || DEFAULT_MODEL;
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent';
-  const res = UrlFetchApp.fetch(url, {
-    method: 'post',
-    contentType: 'application/json',
-    headers: { 'x-goog-api-key': key },
-    payload: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: opts.json ? { temperature: 0.2, responseMimeType: 'application/json' } : { temperature: 0.2 },
-    }),
-    muteHttpExceptions: true,
-  });
-  if (res.getResponseCode() !== 200) {
-    throw new Error('Gemini HTTP ' + res.getResponseCode() + '：' + res.getContentText().slice(0, 200));
+  const payload = { contents: [{ parts: [{ text: prompt }] }] };
+  if (opts.json) payload.generationConfig = { responseMimeType: 'application/json' };
+
+  let res;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    res = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'x-goog-api-key': key },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    });
+    if (res.getResponseCode() !== 429 || attempt === 2) break;
+    Utilities.sleep(GEMINI_RETRY_MS); // 每分鐘額度用完時，等一下再試一次
   }
-  return JSON.parse(res.getContentText()).candidates[0].content.parts[0].text;
+  if (res.getResponseCode() !== 200) throw new Error(geminiHttpError_(res.getResponseCode(), res.getContentText(), model));
+
+  let j;
+  try {
+    j = JSON.parse(res.getContentText());
+  } catch (err) {
+    throw new Error('Gemini 回傳的內容看不懂，請稍後再試。');
+  }
+  if (j.promptFeedback && j.promptFeedback.blockReason) {
+    throw new Error('Gemini 拒絕處理這段內容（原因：' + j.promptFeedback.blockReason + '）。請換一封信或調整內容再試。');
+  }
+  const cand = j.candidates && j.candidates[0];
+  if (!cand) throw new Error('Gemini 沒有回傳任何內容，請稍後再試。');
+  // 只取一般文字，略過「思考」片段；有多段就接起來
+  const text = ((cand.content && cand.content.parts) || [])
+    .filter(function (p) { return !p.thought && typeof p.text === 'string'; })
+    .map(function (p) { return p.text; })
+    .join('');
+  const reason = cand.finishReason || '';
+  if (reason && reason !== 'STOP' && reason !== 'MAX_TOKENS') {
+    throw new Error('Gemini 中途停止（原因：' + reason + '，通常是內容被安全機制擋下）。請換一封信或調整內容再試。');
+  }
+  if (!text.trim()) throw new Error('Gemini 回傳空白（結束原因：' + (reason || '未知') + '），請稍後再試。');
+  if (reason === 'MAX_TOKENS') console.warn('Gemini 回覆太長被截斷');
+  return text;
+}
+
+/** 把 Gemini 的 HTTP 錯誤翻成學員看得懂的話 */
+function geminiHttpError_(code, body, model) {
+  const raw = String(body || '');
+  if (code === 429) {
+    return 'Gemini 免費額度暫時用完（429）。等一分鐘再試；如果一整天都失敗，代表今天的額度用完了，' +
+      '約台灣時間下午 3～4 點重置後再試。';
+  }
+  if (/API_KEY_INVALID|API key not valid/i.test(raw) || code === 401) {
+    return 'Gemini key 無效：請確認 key 有完整貼上（沒有多空白、沒有少字），或到 AI Studio 重新建立一把。';
+  }
+  if (code === 404) {
+    return '找不到模型「' + model + '」：這個型號可能已停用，或你的帳號不能使用。' +
+      '若你在指令碼屬性設過 GEMINI_MODEL，請刪掉或改成官網列出的型號（不填就用預設 ' + DEFAULT_MODEL + '）。';
+  }
+  if (code === 403) {
+    return 'Gemini 拒絕存取（403）：key 可能沒有權限或所在地區不支援，請到 AI Studio 確認 key 的狀態。';
+  }
+  return 'Gemini 錯誤（HTTP ' + code + '）：' + raw.slice(0, 200);
 }
 
 /** 單獨測試 Gemini key 是否可用（不會印出 key） */
@@ -331,6 +462,8 @@ function testGeminiKey() {
 // ============ 排程 ============
 /** 執行一次即可：建立每天 TRIGGER_HOUR 點寄信的觸發器（先刪舊的避免重複） */
 function setupDailyTrigger() {
+  // 觸發器在背景執行時沒辦法跳授權，所以建立前先確認權限都有勾
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, DAILY_SCOPES);
   removeTriggers_('sendDailyReport');
   ScriptApp.newTrigger('sendDailyReport').timeBased().everyDays(1).atHour(TRIGGER_HOUR).create();
 }
@@ -341,23 +474,91 @@ function removeTriggers_(handlerName) {
   });
 }
 
+// ============ 錯誤處理（學員看得懂的訊息）============
+
+/** 選單共用：出錯時用中文對話框說明，並記一列到「錯誤紀錄」分頁 */
+function runMenu_(title, fn) {
+  try {
+    fn();
+  } catch (err) {
+    logError_(title, err);
+    const ui = SpreadsheetApp.getUi();
+    ui.alert(title + '失敗', friendlyError_(err) + '\n\n（也記在試算表「' + ERROR_LOG_SHEET + '」分頁，需要協助時給講師看這一列）', ui.ButtonSet.OK);
+  }
+}
+
+function friendlyError_(err) {
+  const msg = String((err && err.message) || err);
+  if (/authoriz|permission|not sufficient|權限/i.test(msg)) {
+    return '權限不足：' + msg + '\n\n請點「① 一鍵設定」重新授權，授權畫面的權限全部勾選後按「允許」。';
+  }
+  return msg;
+}
+
+function logError_(where, err) {
+  console.error(where + '：' + ((err && err.stack) || err));
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName(ERROR_LOG_SHEET);
+    if (!sheet) {
+      sheet = ss.insertSheet(ERROR_LOG_SHEET);
+      sheet.appendRow(['時間', '在做什麼', '錯誤訊息']);
+      sheet.setFrozenRows(1);
+    }
+    sheet.appendRow([new Date(), where, String((err && err.message) || err)]);
+  } catch (e) {
+    // 連紀錄都寫不進去就算了，不要蓋掉原本的錯誤
+  }
+}
+
 // ============ 小工具 ============
+/** 收件信箱：指令碼屬性 REPORT_TO，不填就寄給執行程式的帳號（也就是你自己） */
+function getReportTo_() {
+  return getProp_('REPORT_TO') || Session.getEffectiveUser().getEmail();
+}
+
 function getProp_(name) {
   return PropertiesService.getScriptProperties().getProperty(name);
 }
 
-function numOrNull_(v) {
-  return typeof v === 'number' && isFinite(v) ? round2_(v) : null;
+/** 儲存格是數字才用（#N/A、空白、文字都當成查無資料）；digits 預設 2 位小數 */
+function numOrNull_(v, digits) {
+  return typeof v === 'number' && isFinite(v) ? roundTo_(v, digits === undefined ? 2 : digits) : null;
 }
 
 function round2_(v) {
-  return typeof v === 'number' && isFinite(v) ? Math.round(v * 100) / 100 : null;
+  return roundTo_(v, 2);
+}
+
+function roundTo_(v, digits) {
+  if (typeof v !== 'number' || !isFinite(v)) return null;
+  const f = Math.pow(10, digits);
+  return Math.round(v * f) / f;
 }
 
 /** 以美東時間判斷是否為平日；國定假日無法自動判斷（見 README 已知限制） */
 function isUsWeekday_(now) {
   const d = Utilities.formatDate(now, 'America/New_York', 'u'); // 1=週一 … 7=週日
   return Number(d) <= 5;
+}
+
+/**
+ * 最近一個美股收盤日（美東時間）→「11月21日」。
+ * 週末往前找到週五；平日收盤（16:00）前算前一個平日。國定假日無法判斷（見 README 已知限制）。
+ */
+function lastUsCloseDate_(now) {
+  const p = Utilities.formatDate(now, 'America/New_York', 'yyyy-MM-dd-u-H').split('-').map(Number);
+  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2], 12)); // 用 UTC 中午代表美東那一天，往前推日期不受時區影響
+  let dow = p[3]; // 1=週一 … 7=週日
+  if (dow <= 5 && p[4] < 16) {
+    d.setUTCDate(d.getUTCDate() - 1);
+    dow = dow - 1 || 7;
+  }
+  while (dow >= 6) {
+    d.setUTCDate(d.getUTCDate() - 1);
+    dow -= 1;
+  }
+  return (d.getUTCMonth() + 1) + '月' + d.getUTCDate() + '日';
 }
 
 function rawTable_(data) {

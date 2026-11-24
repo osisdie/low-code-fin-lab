@@ -25,6 +25,15 @@ const DRAFT_MARK = '【AI 草稿，寄出前請人工確認】';
 const TAX_RATE = 0.05;               // 營業稅率（依你的實際情況調整）
 const MAX_THREADS_PER_RUN = 5;       // 一次最多處理幾封，避免用光免費額度
 const MAX_BODY_CHARS = 4000;         // 信件內文太長時只送前面這麼多字給 AI
+const ADD_INTENT_LABEL = true;        // 依判讀結果多貼一個標籤，例如「AI秘書/詢價」（不想要就改成 false）
+const INTENTS = ['詢價', '改期', '客訴', '其他'];
+const SECRETARY_SCOPES = [           // 秘書需要的權限（建立觸發器前先確認）
+  'https://www.googleapis.com/auth/spreadsheets.currentonly',
+  'https://www.googleapis.com/auth/script.external_request',
+  'https://www.googleapis.com/auth/script.scriptapp',
+  'https://www.googleapis.com/auth/drive',
+  'https://mail.google.com/',
+];
 
 // 判讀提示詞（與 lab-assets/prompts/04-secretary-triage.txt 同步；修改請兩邊一起改）
 const TRIAGE_PROMPT = [
@@ -76,23 +85,34 @@ const REPLY_PROMPT = [
 
 // ============ 選單 ============
 function menuProcessSecretary() {
-  const r = processSecretaryMail();
-  SpreadsheetApp.getUi().alert('秘書處理完成',
-    '已建立 ' + r.drafted + ' 封回覆草稿（在 Gmail「草稿」），' + r.quotes + ' 份報價單草稿（在「' + VAULT_ROOT_NAME + '/秘書」）。\n' +
-    (r.failed ? r.failed + ' 封處理失敗，已貼上「' + SECRETARY_FAIL_LABEL + '」標籤，請人工處理。\n' : '') +
-    (r.drafted + r.failed === 0 ? '\n沒有找到貼著「' + SECRETARY_LABEL + '」標籤的信。' : '\n提醒：草稿不會自動寄出，請逐封檢查【需人工確認】的地方。'),
-    SpreadsheetApp.getUi().ButtonSet.OK);
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, SECRETARY_SCOPES);
+  runMenu_('秘書處理', function () {
+    const r = processSecretaryMail();
+    SpreadsheetApp.getUi().alert('秘書處理完成',
+      '已建立 ' + r.drafted + ' 封回覆草稿（在 Gmail「草稿」），' + r.quotes + ' 份報價單草稿（在「' + VAULT_ROOT_NAME + '/秘書」）。\n' +
+      (r.failed ? r.failed + ' 封處理失敗，已貼上「' + SECRETARY_FAIL_LABEL + '」標籤，請人工處理。\n' : '') +
+      (r.skipped ? r.skipped + ' 封已經有 AI 草稿，這次略過（不會重複建立）。\n' : '') +
+      (r.priceSkipped.length ? '報價表有 ' + r.priceSkipped.length + ' 列單價看不懂、已略過：' + r.priceSkipped.join('、') + '。請把 B 欄改成數字。\n' : '') +
+      (r.drafted + r.failed + r.skipped === 0 ? '\n沒有找到貼著「' + SECRETARY_LABEL + '」標籤的信。' : '\n提醒：草稿不會自動寄出，請逐封檢查【需人工確認】的地方。'),
+      SpreadsheetApp.getUi().ButtonSet.OK);
+  });
 }
 
 function menuEnableSecretary() {
-  removeTriggers_('processSecretaryMail');
-  ScriptApp.newTrigger('processSecretaryMail').timeBased().everyHours(1).create();
-  SpreadsheetApp.getUi().alert('已開啟 ✅ 之後每小時檢查一次「' + SECRETARY_LABEL + '」標籤的信，只建立草稿、不會寄出。');
+  // 觸發器在背景執行時沒辦法跳授權，所以建立前先確認權限都有勾
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, SECRETARY_SCOPES);
+  runMenu_('開啟秘書自動處理', function () {
+    removeTriggers_('processSecretaryMail');
+    ScriptApp.newTrigger('processSecretaryMail').timeBased().everyHours(1).create();
+    SpreadsheetApp.getUi().alert('已開啟 ✅ 之後每小時檢查一次「' + SECRETARY_LABEL + '」標籤的信，只建立草稿、不會寄出。');
+  });
 }
 
 function menuDisableSecretary() {
-  removeTriggers_('processSecretaryMail');
-  SpreadsheetApp.getUi().alert('已停止秘書自動處理。');
+  runMenu_('停止秘書自動處理', function () {
+    removeTriggers_('processSecretaryMail');
+    SpreadsheetApp.getUi().alert('已停止秘書自動處理。');
+  });
 }
 
 // ============ 主流程（設定觸發器時請選這個）============
@@ -100,33 +120,57 @@ function processSecretaryMail() {
   const inbox = getOrCreateLabel_(SECRETARY_LABEL);
   const done = getOrCreateLabel_(SECRETARY_DONE_LABEL);
   const fail = getOrCreateLabel_(SECRETARY_FAIL_LABEL);
-  const prices = readPriceList_();
-  const result = { drafted: 0, quotes: 0, failed: 0 };
+  const priceList = readPriceList_();
+  const prices = priceList.map;
+  const result = { drafted: 0, quotes: 0, failed: 0, skipped: 0, priceSkipped: priceList.skipped };
 
   inbox.getThreads(0, MAX_THREADS_PER_RUN).forEach(function (thread) {
     try {
-      const msgs = thread.getMessages();
+      // 重跑時不重複建立：這串信已經有 AI 草稿就直接移到「已處理」
+      if (hasAiDraft_(thread)) {
+        thread.removeLabel(inbox).addLabel(done);
+        result.skipped++;
+        logSecretary_([new Date(), '', '', thread.getFirstMessageSubject(), '', '', '略過：已有 AI 草稿', thread.getPermalink()]);
+        return;
+      }
+      // 草稿也算在 thread 裡，先排除，才不會拿自己的草稿去判讀
+      const msgs = thread.getMessages().filter(function (m) { return !m.isDraft(); });
+      if (!msgs.length) throw new Error('這串信裡沒有可以判讀的信');
       const msg = msgs[msgs.length - 1];
       const triage = triageEmail_(msg, prices);
-      const quote = triage.items.length ? buildQuote_(triage, prices) : null;
+      const quote = triage.items.length || triage.unmatched.length ? buildQuote_(triage, prices) : null;
 
-      let body = DRAFT_MARK + '\n\n' + draftReply_(triage);
+      const reply = flagAmounts_(draftReply_(triage));
+      let body = DRAFT_MARK + '\n\n' + reply.text;
       if (quote) body += '\n\n' + quoteText_(quote);
+
+      // 先存報價單：存檔失敗不擋草稿，但會記在「秘書紀錄」的狀態
+      let status = '草稿已建立';
+      if (quote) {
+        try {
+          const isoDate = Utilities.formatDate(new Date(), REPORT_TIMEZONE, 'yyyy-MM-dd');
+          const who = noteKey_(triage.customer || '未具名客戶') || '未具名客戶';
+          writeVaultFile_('秘書', '報價單草稿-' + who + '-' + isoDate + '.md',
+            buildQuoteMarkdown_(isoDate, triage, quote, msg.getSubject(), thread.getPermalink()));
+          result.quotes++;
+        } catch (err) {
+          logError_('秘書：報價單存進知識庫', err);
+          status = '草稿已建立（報價單未存檔：' + err.message + '）';
+        }
+      }
+
       msg.createDraftReply(body);
       result.drafted++;
 
-      if (quote) {
-        const isoDate = Utilities.formatDate(new Date(), REPORT_TIMEZONE, 'yyyy-MM-dd');
-        const who = noteKey_(triage.customer || '未具名客戶') || '未具名客戶';
-        writeVaultFile_('秘書', '報價單草稿-' + who + '-' + isoDate + '.md',
-          buildQuoteMarkdown_(isoDate, triage, quote, msg.getSubject(), thread.getPermalink()));
-        result.quotes++;
-      }
       thread.removeLabel(inbox).addLabel(done);
+      if (ADD_INTENT_LABEL && INTENTS.indexOf(triage.intent) !== -1) {
+        thread.addLabel(getOrCreateLabel_(SECRETARY_LABEL + '/' + triage.intent));
+      }
       logSecretary_([new Date(), triage.customer || '未具名客戶', triage.intent || '其他', msg.getSubject(),
-        quote ? quote.total : '', triage.needs_human.length + (quote && !quote.complete ? 1 : 0), '草稿已建立', thread.getPermalink()]);
+        quote ? (quote.complete ? quote.total : '（未完成）') : '',
+        triage.needs_human.length + (quote && !quote.complete ? 1 : 0) + (reply.flagged ? 1 : 0), status, thread.getPermalink()]);
     } catch (err) {
-      console.error('秘書處理失敗（' + thread.getFirstMessageSubject() + '）：' + err.message);
+      logError_('秘書：' + thread.getFirstMessageSubject(), err);
       thread.removeLabel(inbox).addLabel(fail);
       result.failed++;
       logSecretary_([new Date(), '', '', thread.getFirstMessageSubject(), '', '', '失敗：' + err.message, thread.getPermalink()]);
@@ -135,13 +179,25 @@ function processSecretaryMail() {
   return result;
 }
 
+/** 這串信裡是否已經有 AI 草稿（開頭標記還在） */
+function hasAiDraft_(thread) {
+  return thread.getMessages().some(function (m) {
+    return m.isDraft() && m.getPlainBody().indexOf(DRAFT_MARK) !== -1;
+  });
+}
+
 // ============ 判讀與撰寫 ============
 function triageEmail_(msg, prices) {
+  const names = Object.keys(prices).map(function (k) { return '- ' + prices[k].name; }).join('\n') || '（報價表是空的）';
+  const from = msg.getFrom();
+  const subject = msg.getSubject();
+  const body = msg.getPlainBody().slice(0, MAX_BODY_CHARS);
+  // 用函式當替換值：信裡的 $ 符號（例如 NT$）不會被當成特殊字元
   const prompt = TRIAGE_PROMPT
-    .replace('{item_names}', Object.keys(prices).map(function (n) { return '- ' + n; }).join('\n') || '（報價表是空的）')
-    .replace('{from}', msg.getFrom())
-    .replace('{subject}', msg.getSubject())
-    .replace('{body}', msg.getPlainBody().slice(0, MAX_BODY_CHARS));
+    .replace('{item_names}', function () { return names; })
+    .replace('{from}', function () { return from; })
+    .replace('{subject}', function () { return subject; })
+    .replace('{body}', function () { return body; });
   const t = parseJson_(callGemini_(prompt, { json: true }));
   t.items = Array.isArray(t.items) ? t.items : [];
   t.unmatched = Array.isArray(t.unmatched) ? t.unmatched : [];
@@ -150,35 +206,67 @@ function triageEmail_(msg, prices) {
 }
 
 function draftReply_(triage) {
-  return callGemini_(REPLY_PROMPT.replace('{triage_json}', JSON.stringify(triage, null, 2))).trim();
+  const json = JSON.stringify(triage, null, 2);
+  return callGemini_(REPLY_PROMPT.replace('{triage_json}', function () { return json; })).trim();
+}
+
+/** 回覆內文不該有金額；萬一 AI 還是寫了，在最上面加【需人工確認】提醒 */
+function flagAmounts_(text) {
+  const hasAmount = /(NT\$|US\$|＄|\$|新台幣|台幣|美金)\s*[\d０-９]|[\d０-９][\d０-９,，.]*\s*(元|塊|萬|折)/.test(text);
+  return {
+    text: hasAmount ? '【需人工確認：回覆內文出現金額或折扣，報價以信末明細為準，寄出前請確認或刪除】\n\n' + text : text,
+    flagged: hasAmount,
+  };
 }
 
 // ============ 報價（數字只來自報價表）============
 
-/** 讀「報價表」分頁 → { 品項: { price, unit, note } } */
+/** 品項名稱比對前先統一：全形半形、空白（「活動攝影(半天)」＝「活動攝影（半天）」） */
+function normalizeName_(s) {
+  return String(s === null || s === undefined ? '' : s).normalize('NFKC').replace(/\s+/g, '');
+}
+
+/** 單價：數字直接用；文字容許「3,000」「NT$3000」「3000元」；看不懂回傳 null */
+function parsePrice_(v) {
+  if (typeof v === 'number') return isFinite(v) && v >= 0 ? v : null;
+  const t = String(v === null || v === undefined ? '' : v).normalize('NFKC').replace(/NT\$|US\$|\$|元|,|\s/gi, '');
+  return /^\d+(\.\d+)?$/.test(t) ? Number(t) : null;
+}
+
+/** 讀「報價表」分頁 → { map: { 統一後名稱: { name, price, unit, note } }, skipped: ['第 3 列 品項'] } */
 function readPriceList_() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(PRICE_SHEET_NAME);
   if (!sheet) throw new Error('找不到分頁「' + PRICE_SHEET_NAME + '」，請確認分頁名稱');
   const map = {};
-  sheet.getDataRange().getValues().slice(1).forEach(function (r) {
-    if (r[0] && typeof r[1] === 'number') map[String(r[0]).trim()] = { price: r[1], unit: r[2] || '', note: r[3] || '' };
+  const skipped = [];
+  sheet.getDataRange().getValues().slice(1).forEach(function (r, i) {
+    const name = String(r[0]).trim();
+    if (!name) return;
+    const price = parsePrice_(r[1]);
+    if (price === null) {
+      skipped.push('第 ' + (i + 2) + ' 列「' + name + '」');
+      return;
+    }
+    map[normalizeName_(name)] = { name: name, price: price, unit: r[2] || '', note: r[3] || '' };
   });
-  return map;
+  if (skipped.length) console.warn('報價表略過（單價看不懂）：' + skipped.join('、'));
+  return { map: map, skipped: skipped };
 }
 
 /** 依判讀出的品項與數量計算；查不到價格或沒有數量的，標記為需人工，不估算 */
 function buildQuote_(triage, prices) {
   const lines = triage.items.map(function (it) {
-    const p = prices[String(it.name).trim()];
-    const qty = typeof it.qty === 'number' && it.qty > 0 ? it.qty : null;
+    const p = prices[normalizeName_(it.name)];
+    const n = it.qty === null || it.qty === undefined || it.qty === '' ? NaN : Number(it.qty);
+    const qty = isFinite(n) && n > 0 ? n : null;
     if (!p) return { name: it.name, qty: qty, unit: '', price: null, subtotal: null, issue: '報價表查無此品項' };
-    if (qty === null) return { name: it.name, qty: null, unit: p.unit, price: p.price, subtotal: null, issue: '客戶未提供數量' };
-    return { name: it.name, qty: qty, unit: p.unit, price: p.price, subtotal: p.price * qty, issue: '' };
+    if (qty === null) return { name: p.name, qty: null, unit: p.unit, price: p.price, subtotal: null, issue: '客戶未提供數量' };
+    return { name: p.name, qty: qty, unit: p.unit, price: p.price, subtotal: Math.round(p.price * qty * 100) / 100, issue: '' };
   });
   (triage.unmatched || []).forEach(function (n) {
     lines.push({ name: n, qty: null, unit: '', price: null, subtotal: null, issue: '報價表查無此品項' });
   });
-  const subtotal = lines.reduce(function (s, l) { return s + (l.subtotal || 0); }, 0);
+  const subtotal = Math.round(lines.reduce(function (s, l) { return s + (l.subtotal || 0); }, 0) * 100) / 100;
   const tax = Math.round(subtotal * TAX_RATE);
   return {
     lines: lines,
@@ -189,16 +277,24 @@ function buildQuote_(triage, prices) {
   };
 }
 
+/** 金額顯示：NT$120,000 */
+function money_(n) {
+  return 'NT$' + fmtNum_(n);
+}
+
 function quoteText_(q) {
   const rows = q.lines.map(function (l) {
     return '・' + l.name + '　' + (l.qty === null ? '數量待確認' : l.qty + ' ' + l.unit) +
-      (l.price === null ? '' : '　單價 ' + l.price) +
-      (l.subtotal === null ? '　【需人工確認：' + l.issue + '】' : '　小計 ' + l.subtotal);
+      (l.price === null ? '' : '　單價 ' + money_(l.price)) +
+      (l.subtotal === null ? '　【需人工確認：' + l.issue + '】' : '　小計 ' + money_(l.subtotal));
   });
+  const totalLine = q.complete
+    ? '小計：' + money_(q.subtotal) + '　營業稅 ' + Math.round(TAX_RATE * 100) + '%：' + money_(q.tax) + '　合計：' + money_(q.total)
+    : '已計價品項小計：' + money_(q.subtotal) + '　合計：（未完成）';
   return ['──── 報價明細（系統依報價表計算，寄出前請核對）────']
     .concat(rows, [
-      '小計：' + q.subtotal + '　營業稅 ' + Math.round(TAX_RATE * 100) + '%：' + q.tax + '　合計：' + q.total,
-      q.complete ? '' : '【需人工確認：部分品項缺價格或數量，合計尚未包含】',
+      totalLine,
+      q.complete ? '' : '【需人工確認：部分品項缺價格或數量，合計尚未完成】',
       '報價有效期限：（請填入）',
     ]).filter(function (s) { return s !== ''; }).join('\n');
 }
@@ -206,15 +302,18 @@ function quoteText_(q) {
 function buildQuoteMarkdown_(isoDate, triage, q, subject, permalink) {
   const rows = q.lines.map(function (l) {
     return '| ' + l.name + ' | ' + (l.qty === null ? '待確認' : l.qty) + ' | ' + l.unit + ' | ' +
-      (l.price === null ? '' : l.price) + ' | ' + (l.subtotal === null ? '' : l.subtotal) + ' | ' + l.issue + ' |';
+      (l.price === null ? '' : money_(l.price)) + ' | ' + (l.subtotal === null ? '' : money_(l.subtotal)) + ' | ' + l.issue + ' |';
   });
   const checks = triage.needs_human.length ? triage.needs_human : ['（無）'];
+  const totalLines = q.complete
+    ? ['- 小計：' + money_(q.subtotal), '- 營業稅 ' + Math.round(TAX_RATE * 100) + '%：' + money_(q.tax), '- **合計：' + money_(q.total) + '**']
+    : ['- 已計價品項小計：' + money_(q.subtotal), '- **合計：（未完成）** 部分品項缺價格或數量，尚未計入'];
   return [
     '---',
     '類型: 報價單草稿',
     '客戶: "' + String(triage.customer || '未具名客戶').replace(/"/g, "'") + '"',
     '日期: ' + isoDate,
-    '合計: ' + q.total,
+    '合計: ' + (q.complete ? q.total : '"（未完成）"'),
     '狀態: 待確認',
     '---',
     '',
@@ -229,11 +328,7 @@ function buildQuoteMarkdown_(isoDate, triage, q, subject, permalink) {
     '',
     '| 品項 | 數量 | 單位 | 單價 | 小計 | 備註 |',
     '|---|---|---|---|---|---|',
-  ].concat(rows, [
-    '',
-    '- 小計：' + q.subtotal,
-    '- 營業稅 ' + Math.round(TAX_RATE * 100) + '%：' + q.tax,
-    '- **合計：' + q.total + '**' + (q.complete ? '' : '（部分品項缺價格或數量，尚未計入）'),
+  ].concat(rows, [''], totalLines, [
     '',
     '## 需人工確認',
     '',
@@ -279,7 +374,7 @@ function getSecretaryStatus_() {
   if (sheet && sheet.getLastRow() > 1) {
     const since = Date.now() - 24 * 60 * 60 * 1000;
     sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues().forEach(function (r) {
-      if (r[0] instanceof Date && r[0].getTime() >= since && String(r[6]).indexOf('失敗') !== 0) {
+      if (r[0] instanceof Date && r[0].getTime() >= since && String(r[6]).indexOf('失敗') !== 0 && String(r[6]).indexOf('略過') !== 0) {
         recent.push({ customer: r[1], intent: r[2], subject: r[3], total: r[4] });
       }
     });

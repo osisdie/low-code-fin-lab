@@ -5,14 +5,30 @@
  * 用 Google 雲端硬碟電腦版同步到電腦後，Obsidian（或任何編輯器）都能直接打開。
  *
  * 一鍵設定（setupWizard）會呼叫 setupVault_()：
- *   - 建立 FinLab-Vault/日報、FinLab-Vault/秘書、FinLab-Vault/筆記
- *   - 放入起始檔案（首頁、每日筆記範本、儀表板、Obsidian 每日筆記／範本／關聯圖設定）
+ *   - 建立 FinLab-Vault/日報、FinLab-Vault/秘書、FinLab-Vault/筆記、FinLab-Vault/標的
+ *     （「標的」資料夾名稱可用指令碼屬性 VAULT_SYMBOL_FOLDER 更改；股票、匯率、加密貨幣都放這裡）
+ *   - 放入起始檔案（首頁、每日筆記範本、儀表板、Obsidian 每日筆記／範本／關聯圖設定、標的資料夾說明）
  *   已經存在的檔案不會被覆蓋，你自己改過的內容不會不見。
  *
  * STARTER_FILES 與 lab-assets/obsidian-vault/ 裡的同名檔案內容一致；修改請兩邊一起改。
  */
 
 const VAULT_ROOT_NAME = 'FinLab-Vault';
+const VAULT_SYMBOL_FOLDER_DEFAULT = '標的';
+const VAULT_SYMBOL_FOLDER_PROP = 'VAULT_SYMBOL_FOLDER';
+
+/** 標的筆記資料夾名稱：指令碼屬性可改；空白或不合法（含路徑分隔）就用預設「標的」 */
+function vaultSymbolFolder_() {
+  const raw = String(getProp_(VAULT_SYMBOL_FOLDER_PROP) || VAULT_SYMBOL_FOLDER_DEFAULT).trim();
+  if (!raw || raw === '.' || raw === '..' || /[\\/:]/.test(raw)) return VAULT_SYMBOL_FOLDER_DEFAULT;
+  return raw;
+}
+
+/** 日報表格用的 wikilink：[[標的/USD_TWD\|USD/TWD]]，新建筆記就會落在標的資料夾而不是 vault 根目錄 */
+function symbolWikiLink_(it) {
+  if (!it.key) return it.name;
+  return '[[' + vaultSymbolFolder_() + '/' + it.key + '\\|' + it.name + ']]';
+}
 
 const STARTER_FILES = [
   {
@@ -21,6 +37,7 @@ const STARTER_FILES = [
       '# 🏠 我的財經知識庫',
       '',
       '這個資料夾每天會自動多一篇日報（`日報/`），秘書處理過的報價單草稿放在 `秘書/`。',
+      '追蹤項目的筆記放在 `標的/`（股票、匯率、加密貨幣都可以）。',
       '全部都是純 Markdown 檔，換任何編輯器都打得開。',
       '',
       '## 最近的日報',
@@ -127,13 +144,25 @@ const STARTER_FILES = [
 /** 建立（或找回）FinLab-Vault，並放入起始檔案；回傳根資料夾 */
 function setupVault_() {
   const root = getVaultRoot_();
-  ['日報', '秘書', '筆記'].forEach(function (name) { getSubFolder_(root, name); });
+  const symbolFolder = vaultSymbolFolder_();
+  ['日報', '秘書', '筆記', symbolFolder].forEach(function (name) { getSubFolder_(root, name); });
   STARTER_FILES.forEach(function (f) {
     const parts = f.path.split('/');
     const fileName = parts.pop();
     const folder = parts.reduce(getSubFolder_, root);
     if (!folder.getFilesByName(fileName).hasNext()) folder.createFile(fileName, f.content, 'text/plain');
   });
+  const symbolDir = getSubFolder_(root, symbolFolder);
+  if (!symbolDir.getFilesByName('說明.md').hasNext()) {
+    symbolDir.createFile('說明.md', [
+      '# ' + symbolFolder,
+      '',
+      '這個資料夾放每個追蹤項目的筆記，股票、匯率、加密貨幣都可以。',
+      '',
+      '日報「原始數據」表格裡的項目名稱是連結，第一次點會在這裡建立空白筆記，你可以寫「我為什麼追蹤它」。',
+      '',
+    ].join('\n'), 'text/plain');
+  }
   return root;
 }
 

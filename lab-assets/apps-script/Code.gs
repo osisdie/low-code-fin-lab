@@ -474,7 +474,7 @@ function fxNormalize_(s) {
   return String(s).normalize('NFKC').replace(/\s+/g, '').toUpperCase();
 }
 
-/** 一組匯率在摘要裡可能的寫法：分頁名稱、USD/TWD、USDTWD、USD-TWD、美元/台幣、美元兌台幣… */
+/** 一組匯率在摘要裡可能的寫法：分頁名稱、USD/TWD、USDTWD、USD-TWD、美元/台幣、美元兌台幣（簡體「兑」「对」也算）… */
 function fxAliases_(it) {
   const out = [fxNormalize_(it.name)];
   const m = String(it.symbol).trim().toUpperCase().match(/^CURRENCY:([A-Z]{3})([A-Z]{3})$/);
@@ -483,7 +483,7 @@ function fxAliases_(it) {
     out.push(a + '/' + b, a + b, a + '-' + b);
     (FX_ZH[a] || []).forEach(function (za) {
       (FX_ZH[b] || []).forEach(function (zb) {
-        ['/', '兌', '對', ''].forEach(function (sep) { out.push(za + sep + zb); });
+        ['/', '兌', '兑', '對', '对', ''].forEach(function (sep) { out.push(za + sep + zb); });
       });
     });
   }

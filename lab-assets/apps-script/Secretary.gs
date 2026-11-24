@@ -286,20 +286,50 @@ function fixEmptyChecks_(text, needsHuman) {
 }
 
 /**
- * 沒有附報價明細時，AI 還是寫了「報價明細請見信末」這類句子，避免客戶找不到明細：
- *   詢價信整句換成【需人工確認】提醒人工報價；其他意圖（改期、客訴…）直接刪掉那句。
+ * 沒有附報價明細時，AI 還是寫了「報價明細請見信末」這類「叫讀者去看報價」的句子，避免客戶找不到明細。
+ * 只處理同時有：指示詞（請見、請參考、詳見、請參閱、參見、如下）＋「報價」或「明細」＋位置詞（信末、下方、附件…）的句子，
+ * 例如「感謝您隨信附上的訂單明細」沒有指示詞，不會動到。
+ * 不會默默刪字：符合的句子換成【需人工確認】提醒（詢價：請人工報價；其他意圖：請確認），句子裡原本的【需人工確認…】標記一律保留。
  * 有明細（hasQuote 為 true）就原樣回傳。
  */
+const QUOTE_DIRECTIVE_RE = /請見|請參考|詳見|請參閱|參見|如下/;
+const QUOTE_WORD_RE = /報價|明細/;
+const QUOTE_PLACE_RE = /信末|文末|信尾|下方|下列|以下|如下|附件|附檔|隨信/;
+
 function stripQuoteMentions_(text, hasQuote, intent) {
   if (hasQuote) return String(text);
-  const mark = intent === '詢價' ? '【需人工確認：本信沒有附報價明細，請人工報價後再寄出】' : '';
-  let replaced = false;
-  const out = String(text).replace(/[^。！？!?\n]*(?:(?:報價|明細|報價單)[^。！？!?\n]*(?:信末|下方|附件|隨信)|(?:信末|下方|附件|隨信)[^。！？!?\n]*(?:報價|明細))[^。！？!?\n]*[。！？!?]?/g,
-    function () {
-      if (replaced) return '';
-      replaced = true;
-      return mark;
-    });
+  const mark = intent === '詢價'
+    ? '【需人工確認：本信沒有附報價明細，請人工報價後再寄出】'
+    : '【需人工確認：此處提到報價明細，請確認】';
+  return splitSentences_(String(text)).map(function (sen) {
+    if (!(QUOTE_DIRECTIVE_RE.test(sen) && QUOTE_WORD_RE.test(sen) && QUOTE_PLACE_RE.test(sen))) return sen;
+    const kept = sen.match(/【需人工確認[^】]*】/g) || [];
+    return mark + kept.join('');
+  }).join('');
+}
+
+/** 依 。！？!? 與換行切句（標點留在句尾、換行自成一段）；【…】裡的標點不切，標記才不會被拆開 */
+function splitSentences_(text) {
+  const out = [];
+  let cur = '';
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '【') depth++;
+    if (ch === '】' && depth > 0) depth--;
+    if (depth === 0 && ch === '\n') {
+      if (cur) out.push(cur);
+      out.push(ch);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+    if (depth === 0 && /[。！？!?]/.test(ch)) {
+      out.push(cur);
+      cur = '';
+    }
+  }
+  if (cur) out.push(cur);
   return out;
 }
 

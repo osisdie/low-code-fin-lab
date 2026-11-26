@@ -73,11 +73,11 @@ const YAHOO_ITEMS = [
   { name: '美國10年期公債殖利率 ^TNX（%）', symbol: '^TNX', key: '美債10年' },
 ];
 
-// 「數據」分頁某列 GOOGLEFINANCE 查無資料（#N/A）時，改用 Yahoo Finance 補抓（失敗就維持「查無資料」）
+// 「數據」分頁某列缺現價（#N/A）或缺漲跌時，改用 Yahoo Finance 補抓（失敗就維持「查無資料」）
 // 匯率（CURRENCY:USDTWD 這種）會自動換成 Yahoo 的 USDTWD=X，不用列在這裡
-// 為什麼匯率列常常是 #N/A：GOOGLEFINANCE 不接受 CURRENCY: 代碼加 "price" 屬性（2026-11-26 實測，
-// 錯誤訊息是 parameter 2 value is invalid for the symbol specified），closeyest／changepct 也拿不到，
-// 所以匯率一律由下面的 sheetFallback_ 改抓 Yahoo，現價與漲跌都有。
+// 為什麼匯率要補：GOOGLEFINANCE 不接受 CURRENCY: 代碼加 "price" 屬性（2026-11-26 實測，錯誤訊息是
+// parameter 2 value is invalid for the symbol specified），closeyest／changepct 也拿不到。範本 C 欄用
+// =IFERROR(GOOGLEFINANCE(B2,"price"),GOOGLEFINANCE(B2)) 讓匯率也有現價；漲跌則由下面的 sheetFallback_ 向 Yahoo 補。
 const YAHOO_FALLBACK = {
   'TPE:IX0001': '^TWII',     // 台股加權指數
   'INDEXTPE:TAIEX': '^TWII', // 舊範本的代碼（Google Finance 已查不到）
@@ -461,24 +461,40 @@ function readSheetItems_() {
       // E 欄空白（部分匯率沒有 changepct）但有現價與前一收盤時，自己算；都沒有就維持「查無資料」
       if (changePct === null && price !== null && prevClose) changePct = round2_((r[2] / r[3] - 1) * 100);
       const item = { name: r[0], symbol: r[1], key: noteKey_(r[0]), price: price, prevClose: prevClose, changePct: changePct, source: 'Google Finance' };
-      return price === null ? sheetFallback_(item, digits) : item;
+      // 現價或漲跌缺一個（舊範本的匯率 C 欄 #N/A，或新範本匯率只有現價），才去 Yahoo 補；股票 D、E 欄有值就不會多抓
+      return price === null || changePct === null ? sheetFallback_(item, digits) : item;
     });
 }
 
-/** Google Finance 查無資料時，若有對應的 Yahoo 代碼就補抓；補不到就原樣回傳（信裡會寫「查無資料」） */
-function sheetFallback_(item, digits) {
-  const sym = String(item.symbol).trim().toUpperCase();
+/** 這一列對應的 Yahoo 代碼：匯率 CURRENCY:USDTWD → USDTWD=X，其他查 YAHOO_FALLBACK；沒有對應就回傳空字串 */
+function yahooSymbolFor_(symbol) {
+  const sym = String(symbol).trim().toUpperCase();
   const fx = sym.match(/^CURRENCY:([A-Z]{3})([A-Z]{3})$/);
-  const ySymbol = fx ? fx[1] + fx[2] + '=X' : YAHOO_FALLBACK[sym];
+  return fx ? fx[1] + fx[2] + '=X' : (YAHOO_FALLBACK[sym] || '');
+}
+
+/**
+ * 「數據」分頁缺數字時，若有對應的 Yahoo 代碼就補抓；沒有代碼或補不到就原樣回傳（信裡會寫「查無資料」）。
+ *   - C 欄有現價、只缺漲跌（新範本的匯率：GOOGLEFINANCE 給不了前一收盤與漲跌）：保留 Google 的現價，只用 Yahoo 補前一收盤與漲跌
+ *   - C 欄也是 #N/A（舊範本的匯率、查不到的代碼）：現價和漲跌都改用 Yahoo
+ */
+function sheetFallback_(item, digits) {
+  const ySymbol = yahooSymbolFor_(item.symbol);
   if (!ySymbol) return item;
+  const hasPrice = item.price !== null;
   try {
     const q = fetchYahooQuote_(ySymbol, digits);
-    return { name: item.name, symbol: item.symbol, key: item.key, price: q.price, prevClose: q.prevClose, changePct: q.changePct,
-      source: 'Yahoo Finance ' + ySymbol + '（Google Finance 查無資料，改用備援）' };
+    if (hasPrice) {
+      return Object.assign({}, item, { prevClose: q.prevClose, changePct: q.changePct,
+        source: 'Google Finance；漲跌由 Yahoo ' + ySymbol + ' 補' });
+    }
+    return Object.assign({}, item, { price: q.price, prevClose: q.prevClose, changePct: q.changePct,
+      source: 'Yahoo Finance ' + ySymbol + '（Google Finance 查無資料，改用備援）' });
   } catch (err) {
     console.warn('Yahoo 備援 ' + ySymbol + ' 失敗：' + err.message);
-    item.source = 'Google Finance（查無資料；Yahoo 備援也暫時無法取得）';
-    return item;
+    return Object.assign({}, item, { source: hasPrice
+      ? 'Google Finance（漲跌查無資料；Yahoo 備援 ' + ySymbol + ' 暫時無法取得）'
+      : 'Google Finance（查無資料；Yahoo 備援也暫時無法取得）' });
   }
 }
 

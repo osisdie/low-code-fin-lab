@@ -6,7 +6,7 @@
 |---|---|---|
 | **數據** | `Code.gs` | Stage 2–3 每日日報 |
 | **報價表** | `Secretary.gs` | Stage 4 商務秘書（報價金額只從這裡算） |
-| 日報紀錄 | `Code.gs` 自動建立 | 每寄一次今日總覽記一列：日期、各項數字與漲跌%、秘書待辦數量（新項目自動加欄） |
+| 日報紀錄 | `Code.gs` 自動建立 | 每天一列：日期、更新時間、更新方式（每日排程／手動寄送／手動更新）、各項數字與漲跌%、秘書待辦數量（新項目自動加欄）；同一天重跑會覆寫那一列 |
 | 秘書紀錄 | `Secretary.gs` 自動建立 | 每處理一封信記一列：時間、客戶、意圖、主旨、報價合計、需人工確認、狀態、信件連結 |
 
 > 學員通常不用自己建：講師提供的「建立副本」連結已經包含「數據」「報價表」與程式；兩個「紀錄」分頁第一次執行時自動產生，範本不用先建。這頁是給講師建範本、或想手動重建的人參考。
@@ -48,7 +48,7 @@
 
 ### 代碼查證紀錄（2026-11-24）
 - **台股加權指數**：舊代碼 `INDEXTPE:TAIEX` 在彩排時顯示 `#N/A`，Google 財經網站上也已找不到這個代碼。Google 財經的加權指數頁面是 [`IX0001:TPE`](https://www.google.com/finance/quote/IX0001:TPE)，試算表寫成 `TPE:IX0001`（多個中文教學也用這個寫法）。指數類通常沒有 `closeyest`／`changepct` 以外的財務欄位，這是正常的。
-- **匯率**：`CURRENCY:USDTWD`、`CURRENCY:JPYTWD`、`CURRENCY:EURUSD` 是一般通用的寫法，Google 財經網站上也有 [USD-TWD](https://www.google.com/finance/quote/USD-TWD)、[JPY-TWD](https://www.google.com/finance/quote/JPY-TWD)、[EUR-USD](https://www.google.com/finance/quote/EUR-USD) 頁面；但彩排時這三列的 C 欄都是 `#N/A`（原因未明，可能是暫時性問題，網路上也有「等幾小時就恢復」的經驗）。請注意代碼中間**不能有斜線**（`USD/TWD` 一定 `#N/A`），也不要多空白。
+- **匯率**：`CURRENCY:USDTWD`、`CURRENCY:JPYTWD`、`CURRENCY:EURUSD` 是一般通用的寫法，Google 財經網站上也有 [USD-TWD](https://www.google.com/finance/quote/USD-TWD)、[JPY-TWD](https://www.google.com/finance/quote/JPY-TWD)、[EUR-USD](https://www.google.com/finance/quote/EUR-USD) 頁面；但這三列的 C 欄一定是 `#N/A`，**這是正常的**。原因已在 2026-11-26 實測確認：`GOOGLEFINANCE` 不接受 `CURRENCY:` 代碼加上 `"price"` 屬性，錯誤說明是 `parameter 2 value is invalid for the symbol specified`；D、E 欄的 `closeyest`／`changepct` 也拿不到（會是空白）。不帶屬性的 `=GOOGLEFINANCE("CURRENCY:USDTWD")` 出得來現價，但仍然沒有前一收盤與漲跌，所以範本維持原公式，讓程式改抓 Yahoo（見下方「程式備援」），現價和漲跌都有。另外請注意代碼中間**不能有斜線**（`USD/TWD` 一定 `#N/A`），也不要多空白。
 - **程式備援**：`Code.gs` 讀到某列 C 欄是 `#N/A` 時，匯率會自動改抓 Yahoo Finance 的 `USDTWD=X`／`JPYTWD=X`／`EURUSD=X`，加權指數改抓 `^TWII`（其他代碼可加在 `Code.gs` 的 `YAHOO_FALLBACK`）。信裡的「來源」欄會寫「Google Finance 查無資料，改用備援」，方便核對。Yahoo 端點是非官方的，備援也失敗時一樣寫「查無資料」，不會亂補數字。
 > 黃金、美債殖利率、BTC 不在 Sheet 內：由 `Code.gs` 另外抓取（Google Finance 沒有現貨黃金）。
 > `GOOGLEFINANCE` 資料可能延遲約 20 分鐘，且只能在 Sheet 儲存格中使用，不能在 Apps Script 內直接呼叫。

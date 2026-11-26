@@ -13,6 +13,16 @@
  *   - OpenRouter API key 放在「專案設定 → 指令碼屬性」(OPENROUTER_API_KEY)，不要寫進這份程式碼。
  *     程式不會把 key 印到紀錄、對話框或信件裡。
  *
+ * 指令碼屬性（專案設定 → 指令碼屬性；全部都可以不設，key 由一鍵設定幫你存）：
+ *   OPENROUTER_API_KEY  OpenRouter key
+ *   AI_ENABLED          true／false：要不要呼叫 AI；false 時 0 次 AI 呼叫，只寄原始數據
+ *   REPORT_TO           收件信箱，不填就寄給自己
+ *   REPORT_TEMPLATE     信件版面 compact／full／table（用選單「🎨 選擇信件版面」設定比較方便）
+ *   REPORT_HOUR         每天幾點寄出（0～23 的整數，台灣時間，建議 6～11），不設就是 TRIGGER_HOUR（7 點）；改完要再點一次選單 ③ 才會生效
+ *   OPENROUTER_MODEL／OPENROUTER_FALLBACK_MODEL  換主要／備用免費模型，不用改程式
+ *   VAULT_SYMBOL_FOLDER 知識庫裡追蹤項目筆記的資料夾名稱（預設「標的」，見 Vault.gs）
+ *   VAULT_ROOT_ID       程式自動寫入的 FinLab-Vault 資料夾 ID，不用自己填
+ *
  * 第一次使用：重新整理試算表 → 上方選單「📰 我的 AI 助理」→ ① 一鍵設定（OpenRouter key 可留空，改走「關閉 AI」）→ ② 立即寄一封今日總覽 → ③ 開啟每日自動寄送
  *   （不用打開這個編輯器；手動執行時依序跑 setupWizard → sendDailyReport → setupDailyTrigger 也可以）
  * 詳細點擊步驟見 README.md 與 docs/student/student-stage-2-lab.md
@@ -31,8 +41,17 @@ const AI_ENABLED_PROP = 'AI_ENABLED';                   // true／false（也接
 const AI_OFF_SUMMARY = 'AI 摘要已關閉，以下為原始數據。';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_KEYS_PAGE = 'https://openrouter.ai/settings/keys';
-const TRIGGER_HOUR = 8;             // 每天幾點寄出（依 appsscript.json 的時區：Asia/Taipei）
+// 每天幾點寄出的預設值（依 appsscript.json 的時區：Asia/Taipei）；想改時間不用改程式，設指令碼屬性 REPORT_HOUR 再點一次 ③
+const TRIGGER_HOUR = 7;
+const REPORT_HOUR_PROP = 'REPORT_HOUR';
+// 日報上的日期用台灣時間（與 appsscript.json 的 timeZone 一致）
 const REPORT_TIMEZONE = 'Asia/Taipei';
+// 星期幾自己對照，不用格式字 E：真正的 Apps Script 會把 E 印成英文（Thu）。u 是 1=週一 … 7=週日
+const WEEKDAYS_ZH = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
+// 「日報紀錄」的「更新方式」欄與 Markdown 的 trigger: 欄位會寫這三種之一
+const RUN_BY_SCHEDULE = '每日排程';
+const RUN_BY_SEND = '手動寄送';
+const RUN_BY_REFRESH = '手動更新';
 const DAILY_LOG_SHEET = '日報紀錄';   // 每天一列數字，不用裝任何軟體就能看趨勢（自動建立）
 const ERROR_LOG_SHEET = '錯誤紀錄';   // 選單或秘書出錯時記一列，方便講師幫忙看（自動建立）
 
@@ -56,6 +75,9 @@ const YAHOO_ITEMS = [
 
 // 「數據」分頁某列 GOOGLEFINANCE 查無資料（#N/A）時，改用 Yahoo Finance 補抓（失敗就維持「查無資料」）
 // 匯率（CURRENCY:USDTWD 這種）會自動換成 Yahoo 的 USDTWD=X，不用列在這裡
+// 為什麼匯率列常常是 #N/A：GOOGLEFINANCE 不接受 CURRENCY: 代碼加 "price" 屬性（2026-11-26 實測，
+// 錯誤訊息是 parameter 2 value is invalid for the symbol specified），closeyest／changepct 也拿不到，
+// 所以匯率一律由下面的 sheetFallback_ 改抓 Yahoo，現價與漲跌都有。
 const YAHOO_FALLBACK = {
   'TPE:IX0001': '^TWII',     // 台股加權指數
   'INDEXTPE:TAIEX': '^TWII', // 舊範本的代碼（Google Finance 已查不到）
@@ -93,14 +115,23 @@ const PROMPT_TEMPLATE = [
 ].join('\n');
 
 // ============ 試算表選單（學員只需要點這裡）============
+/** 打開試算表時 Google 會自動執行：在上方加「📰 我的 AI 助理」選單。每一項後面的英文字是按下去會執行的函式名稱 */
 function onOpen() {
+  // 選單上的時間跟著 REPORT_HOUR；讀不到屬性就顯示預設時間，選單照樣出現
+  let hour = TRIGGER_HOUR;
+  try {
+    hour = reportHour_();
+  } catch (err) {
+    // 開啟試算表時的權限比較少，讀不到就算了
+  }
   SpreadsheetApp.getUi().createMenu('📰 我的 AI 助理')
     .addItem('① 一鍵設定（第一次用）', 'setupWizard')
     .addItem('② 立即寄一封今日總覽', 'menuSendNow')
+    .addItem('↻ 只更新數字與知識庫（不寄信）', 'menuRefreshNow')
     .addItem('🎨 選擇信件版面', 'menuChooseTemplate')
     .addItem('🎨 寄三種版面樣張給我', 'menuSendSamples')
     .addSeparator()
-    .addItem('③ 開啟每日 08:00 自動寄送', 'menuEnableDaily')
+    .addItem('③ 開啟每日 ' + hourLabel_(hour) + ' 自動寄送', 'menuEnableDaily')
     .addItem('④ 停止每日自動寄送', 'menuDisableDaily')
     .addSeparator()
     .addItem('⑤ 秘書：處理「AI秘書」標籤的信', 'menuProcessSecretary')
@@ -116,6 +147,7 @@ function setupWizard() {
   runMenu_('一鍵設定', setupWizardSteps_);
 }
 
+/** 一鍵設定的實際步驟（由 setupWizard 透過 runMenu_ 執行，出錯會變成中文對話框並記進「錯誤紀錄」） */
 function setupWizardSteps_() {
   const ui = SpreadsheetApp.getUi();
   const props = PropertiesService.getScriptProperties();
@@ -146,6 +178,7 @@ function setupWizardSteps_() {
     props.setProperty(AI_ENABLED_PROP, 'false');
   }
 
+  // AI 關閉（key 留空或 AI_ENABLED=false）就跳過測試：這一步完全不呼叫 OpenRouter
   if (isAiEnabled_()) {
     try {
       callAi_('請只回答：OK');
@@ -177,12 +210,48 @@ function setupWizardSteps_() {
     ui.ButtonSet.OK);
 }
 
+/** 選單 ②：先確認權限都有勾，再寄一封今日總覽 */
 function menuSendNow() {
   ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, DAILY_SCOPES);
   runMenu_('寄出今日總覽', function () {
-    sendDailyReport();
-    SpreadsheetApp.getUi().alert('已寄出 ✅ 請到信箱查看。\n數字也記進「' + DAILY_LOG_SHEET + '」分頁，並存進雲端硬碟「' + VAULT_ROOT_NAME + '/日報」。');
+    const res = runDailyPipeline_({ sendMail: true, runBy: RUN_BY_SEND });
+    SpreadsheetApp.getUi().alert(savedHeadline_(res, true) + '\n' + savedLines_(res));
   });
+}
+
+/** 選單 ↻：跑一樣的流程（抓數字、AI 摘要、日報紀錄、知識庫），但不寄信 */
+function menuRefreshNow() {
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, DAILY_SCOPES);
+  runMenu_('更新數字與知識庫', function () {
+    const res = runDailyPipeline_({ sendMail: false, runBy: RUN_BY_REFRESH });
+    SpreadsheetApp.getUi().alert(savedHeadline_(res, false) + '\n' + savedLines_(res));
+  });
+}
+
+/**
+ * ② 與 ↻ 對話框的第一行：看「日報紀錄」與知識庫有沒有存成功來決定，不會失敗了還寫 ✅。
+ * sent 為 true 表示信已經寄出（②），所以寫「已寄出」再補上沒存成功的部分。
+ */
+function savedHeadline_(res, sent) {
+  const failed = (res.logError ? 1 : 0) + (res.vaultError ? 1 : 0);
+  if (sent) {
+    if (failed === 2) return '已寄出 ✅ 請到信箱查看。但 ⚠️「' + DAILY_LOG_SHEET + '」和知識庫都沒有更新成功：';
+    if (failed === 1) return '已寄出 ✅ 請到信箱查看。但 ⚠️ 只有部分完成：';
+    return '已寄出 ✅ 請到信箱查看。';
+  }
+  if (failed === 2) return '⚠️ 沒有更新成功（這次沒有寄信）：';
+  if (failed === 1) return '⚠️ 部分完成（這次沒有寄信）：';
+  return '已更新 ✅（這次沒有寄信）';
+}
+
+/** ② 與 ↻ 完成後的說明：存到哪裡、資料更新時間；沒存成功的也照實說 */
+function savedLines_(res) {
+  const lines = [
+    '資料更新時間：' + res.ctx.updatedAt + '（台灣時間）',
+    res.logError ? '⚠️ 沒寫進「' + DAILY_LOG_SHEET + '」：' + res.logError : '數字已記進「' + DAILY_LOG_SHEET + '」分頁（同一天只有一列，會更新成最新的）。',
+    res.vaultError ? '⚠️ 沒存進知識庫：' + res.vaultError + '（點「① 一鍵設定」可重建資料夾）' : '日報已存進雲端硬碟「' + VAULT_ROOT_NAME + '/日報」。',
+  ];
+  return lines.join('\n');
 }
 
 /** 寄出三種版面的樣張（AI 摘要只產生一次），讓你比較後再用「選擇信件版面」決定 */
@@ -199,6 +268,7 @@ function menuSendSamples() {
   });
 }
 
+/** 選單 🎨：輸入編號選版面，存進指令碼屬性 REPORT_TEMPLATE（只改排版，不影響數字） */
 function menuChooseTemplate() {
   const ui = SpreadsheetApp.getUi();
   const keys = Object.keys(REPORT_TEMPLATES);
@@ -215,14 +285,21 @@ function menuChooseTemplate() {
   ui.alert('已改成「' + REPORT_TEMPLATES[key].name + '」✅ 明天起生效；想馬上看就點「② 立即寄一封今日總覽」。');
 }
 
+/** 選單 ③：建立每天 REPORT_HOUR 點（沒設就是 TRIGGER_HOUR）的自動寄送 */
 function menuEnableDaily() {
   ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, DAILY_SCOPES);
   runMenu_('開啟每日自動寄送', function () {
-    setupDailyTrigger();
-    SpreadsheetApp.getUi().alert('已開啟 ✅ 之後每天 ' + TRIGGER_HOUR + ':00 左右自動寄出（Google 會在該小時內執行）。');
+    const hour = setupDailyTrigger();
+    const bad = reportHourRaw_() !== '' && !isValidHour_(reportHourRaw_());
+    SpreadsheetApp.getUi().alert('已開啟 ✅ 之後每天 ' + hourLabel_(hour) + ' 左右自動寄出（Google 會在 ' + hourLabel_(hour) + '～' +
+      hourLabel_(hour).replace(':00', ':59') + ' 之間執行）。\n\n' +
+      (bad ? '⚠️ 指令碼屬性 ' + REPORT_HOUR_PROP + ' 不是 0～23 的整數，先用預設 ' + hourLabel_(TRIGGER_HOUR) + '。\n' : '') +
+      '想換時間：到「專案設定 → 指令碼屬性」把 ' + REPORT_HOUR_PROP + ' 設成 0～23 的整數（例如 6），再點一次「③」才會生效。' +
+      '選單上的時間要重新整理試算表才會跟著變。');
   });
 }
 
+/** 選單 ④：刪掉自動寄送的觸發器（不會刪任何資料或信件） */
 function menuDisableDaily() {
   runMenu_('停止每日自動寄送', function () {
     removeTriggers_('sendDailyReport');
@@ -231,29 +308,50 @@ function menuDisableDaily() {
 }
 
 // ============ 主流程（設定觸發器時請選這個）============
-function sendDailyReport() {
-  const ctx = buildBriefingContext_();
-  const out = renderBriefing_(getTemplateKey_(), ctx);
-  const to = getReportTo_();
-  MailApp.sendEmail({ to: to, subject: out.subject, body: out.text, htmlBody: out.html });
+/**
+ * 每天的觸發器執行的就是這個函式：跑一次今日總覽並寄出。
+ * 觸發器會傳入事件資料 e，所以有 e 就記成「每日排程」；在編輯器直接按「執行」沒有 e，記成「手動寄送」。
+ */
+function sendDailyReport(e) {
+  runDailyPipeline_({ sendMail: true, runBy: e ? RUN_BY_SCHEDULE : RUN_BY_SEND });
+}
 
-  // 以下失敗都不影響寄信（例如還沒跑過一鍵設定）
+/**
+ * 今日總覽主流程（② 寄送、↻ 更新、每日排程共用這一個）：
+ * 收集資料（含 AI 摘要）→ sendMail 為 true 才依版面排版、用 MailApp 寄到 REPORT_TO（沒設就是你自己）
+ * → 記一列「日報紀錄」→ 存一份 Markdown 到知識庫。
+ * 回傳 { ctx, logError, vaultError }：後兩個是沒存成功的原因（成功就是空字串）。
+ */
+function runDailyPipeline_(opts) {
+  const ctx = buildBriefingContext_(opts.runBy);
+  if (opts.sendMail) {
+    const out = renderBriefing_(getTemplateKey_(), ctx);
+    MailApp.sendEmail({ to: getReportTo_(), subject: out.subject, body: out.text, htmlBody: out.html });
+  }
+
+  // 以下失敗都不影響寄信（例如還沒跑過一鍵設定）；原因記在執行紀錄，選單也會顯示
+  const res = { ctx: ctx, logError: '', vaultError: '' };
   try {
     appendDailyLog_(ctx);
   } catch (err) {
+    res.logError = err.message;
     console.warn('未寫入「' + DAILY_LOG_SHEET + '」：' + err.message);
+    logError_('日報紀錄', err); // 每日排程沒有對話框，記進「錯誤紀錄」分頁才看得到
   }
   try {
-    writeVaultFile_('日報', ctx.isoDate + ' 財經日報.md', buildReportMarkdown_(ctx.isoDate, ctx.data, ctx.summary, ctx.secretary));
+    writeVaultFile_('日報', ctx.isoDate + ' 財經日報.md', buildReportMarkdown_(ctx.isoDate, ctx.data, ctx.summary, ctx.secretary, ctx));
   } catch (err) {
+    res.vaultError = err.message;
     console.warn('日報未存進知識庫：' + err.message);
+    logError_('日報存知識庫', err);
   }
+  return res;
 }
 
-/** 收集今日總覽需要的一切：財經數字、AI 摘要、秘書待辦 */
-function buildBriefingContext_() {
+/** 收集今日總覽需要的一切：財經數字、AI 摘要、秘書待辦；runBy 是「更新方式」（樣張不寫紀錄，可以不給） */
+function buildBriefingContext_(runBy) {
   const now = new Date();
-  const dateStr = Utilities.formatDate(now, REPORT_TIMEZONE, 'yyyy年M月d日（E）');
+  const dateStr = Utilities.formatDate(now, REPORT_TIMEZONE, 'yyyy年M月d日') + '（' + zhWeekday_(now) + '）';
   const data = {
     date: dateStr,
     usMarketOpen: isUsWeekday_(now),
@@ -275,6 +373,10 @@ function buildBriefingContext_() {
   return {
     dateStr: dateStr,
     isoDate: Utilities.formatDate(now, REPORT_TIMEZONE, 'yyyy-MM-dd'),
+    // 資料更新時間（開始抓數字的那一刻）：給「日報紀錄」、信件頁尾看的，以及 Markdown 用的 ISO 格式（+08:00）
+    updatedAt: Utilities.formatDate(now, REPORT_TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
+    updatedIso: Utilities.formatDate(now, REPORT_TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+    runBy: runBy || '',
     data: data,
     summary: summary,
     secretary: secretary,
@@ -282,6 +384,7 @@ function buildBriefingContext_() {
   };
 }
 
+/** 目前選的版面；屬性沒設或填錯就用預設 DEFAULT_TEMPLATE（完整版） */
 function getTemplateKey_() {
   const key = getProp_('REPORT_TEMPLATE');
   return REPORT_TEMPLATES[key] ? key : DEFAULT_TEMPLATE;
@@ -289,13 +392,16 @@ function getTemplateKey_() {
 
 // ============ 日報紀錄（每天一列）============
 
-/** 依標題列對欄位寫入；新的追蹤項目會自動加欄；同一天重跑會覆寫同一列 */
+/**
+ * 依標題列對欄位寫入；新的追蹤項目（或舊表沒有的「更新時間」「更新方式」）會自動加在最右邊；
+ * 同一天重跑會覆寫同一列，所以「更新時間」永遠是當天最後一次的時間
+ */
 function appendDailyLog_(ctx) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(DAILY_LOG_SHEET);
   if (!sheet) {
     sheet = ss.insertSheet(DAILY_LOG_SHEET);
-    sheet.getRange(1, 1, 1, 2).setValues([['日期', '美股開盤']]);
+    sheet.getRange(1, 1, 1, 4).setValues([['日期', '更新時間', '更新方式', '美股開盤']]);
     sheet.setFrozenRows(1);
     sheet.getRange('A:A').setNumberFormat('@'); // 日期存成文字，避免被轉成別的日期格式
   }
@@ -311,12 +417,19 @@ function appendDailyLog_(ctx) {
   const dates = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues() : [];
   const idx = dates.findIndex(function (r) { return String(r[0]) === ctx.isoDate; });
   const target = idx === -1 ? sheet.getLastRow() + 1 : idx + 2;
+  // 「更新時間」存成文字，才會照 yyyy-MM-dd HH:mm:ss 顯示，不會被試算表改成別的日期格式
+  sheet.getRange(target, header.indexOf('更新時間') + 1).setNumberFormat('@');
   sheet.getRange(target, 1, 1, values.length).setValues([values]);
 }
 
-/** 一天一列：日期、各項數字與漲跌，以及秘書待辦數量（查無資料留空） */
+/** 一天一列：日期、更新時間與方式、各項數字與漲跌，以及秘書待辦數量（查無資料留空） */
 function dailyLogRow_(ctx) {
-  const row = { '日期': ctx.isoDate, '美股開盤': ctx.data.usMarketOpen ? '是' : '否' };
+  const row = {
+    '日期': ctx.isoDate,
+    '更新時間': ctx.updatedAt,
+    '更新方式': ctx.runBy,
+    '美股開盤': ctx.data.usMarketOpen ? '是' : '否',
+  };
   ctx.data.items.forEach(function (it) {
     if (!it.key) return;
     row[it.key] = it.price === null ? '' : it.price;
@@ -434,6 +547,8 @@ function fetchYahooItems_() {
 
 /** Yahoo Finance 最近兩個日收盤 → 現價、前一收盤、漲跌幅%（失敗會丟出錯誤，由呼叫端決定怎麼處理） */
 function fetchYahooQuote_(symbol, digits) {
+  // 抓最近 5 天的日收盤：遇到週末或假日，也還有最後兩個收盤可以比較
+  // 加上一般瀏覽器的 User-Agent，減少被這個非官方端點拒絕
   const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + '?range=5d&interval=1d';
   const res = UrlFetchApp.fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
   const closes = JSON.parse(res.getContentText()).chart.result[0].indicators.quote[0].close
@@ -451,7 +566,11 @@ function isAiEnabled_() {
   return !!getProp_(AI_KEY_PROP);
 }
 
-/** 關閉 AI 或沒有 key 時，日報與信件使用的說明（不會當成錯誤） */
+/**
+ * 產生日報的摘要文字。
+ * 安全：AI 關閉（沒有 key 或 AI_ENABLED=false）時直接回傳 AI_OFF_SUMMARY，0 次 AI 呼叫，不當成錯誤；
+ * AI 失敗時退回「只寄原始數據」，信照樣寄得出去；摘要裡有原始數據找不到的數字，最前面加 ⚠️ 提醒。
+ */
 function buildAiSummary_(dateStr, data) {
   if (!isAiEnabled_()) return AI_OFF_SUMMARY;
   try {
@@ -480,6 +599,7 @@ function alertAiOffForSecretary_(title) {
 }
 
 // ============ AI 摘要（OpenRouter）============
+/** 把日期與今天的數據（JSON）填進 PROMPT_TEMPLATE；AI 看得到的數字只有這份資料 */
 function buildPrompt_(dateStr, data) {
   // 用函式當替換值：資料裡的 $ 符號不會被當成特殊字元
   return PROMPT_TEMPLATE
@@ -630,6 +750,7 @@ function callOpenRouterOnce_(key, model, prompt, opts) {
         'X-OpenRouter-App-Visibility': 'hidden',
       },
       payload: JSON.stringify(payload),
+      // 出錯時不要直接丟出英文例外，交給下面翻成中文說明
       muteHttpExceptions: true,
     });
   } catch (err) {
@@ -672,6 +793,7 @@ function isFreeDailyLimit_(body) {
 
 /** 把 OpenRouter 的 HTTP 錯誤翻成學員看得懂的話（回傳 Error；body 只取 OpenRouter 的錯誤說明，不含 key） */
 function openRouterHttpError_(code, body, model) {
+  // 原始訊息只留前 160 個字：看得出原因，對話框又不會太長
   let detail = '';
   try {
     const e = JSON.parse(body).error;
@@ -720,14 +842,44 @@ function testAiKey() {
 }
 
 // ============ 排程 ============
-/** 執行一次即可：建立每天 TRIGGER_HOUR 點寄信的觸發器（先刪舊的避免重複） */
+/**
+ * 執行一次即可：建立每天 REPORT_HOUR 點（沒設就是 TRIGGER_HOUR）寄信的觸發器（先刪舊的避免重複）。
+ * 觸發器建立時就記住了時間，之後改 REPORT_HOUR 要再執行一次（選單 ③）才會換時間。回傳設定的小時。
+ */
 function setupDailyTrigger() {
   // 觸發器在背景執行時沒辦法跳授權，所以建立前先確認權限都有勾
   ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, DAILY_SCOPES);
+  const hour = reportHour_();
   removeTriggers_('sendDailyReport');
-  ScriptApp.newTrigger('sendDailyReport').timeBased().everyDays(1).atHour(TRIGGER_HOUR).create();
+  ScriptApp.newTrigger('sendDailyReport').timeBased().everyDays(1).atHour(hour).create();
+  return hour;
 }
 
+/** 每天寄出的小時：指令碼屬性 REPORT_HOUR（0～23 的整數）；沒設或填錯就用 TRIGGER_HOUR，填錯會在執行紀錄留一行提醒 */
+function reportHour_() {
+  const s = reportHourRaw_();
+  if (!s) return TRIGGER_HOUR;
+  if (isValidHour_(s)) return Number(s);
+  console.warn('指令碼屬性 ' + REPORT_HOUR_PROP + '「' + s + '」不是 0～23 的整數，改用預設 ' + TRIGGER_HOUR + ' 點');
+  return TRIGGER_HOUR;
+}
+
+/** REPORT_HOUR 填的字（去掉前後空白）；沒設就是空字串 */
+function reportHourRaw_() {
+  return String(getProp_(REPORT_HOUR_PROP) || '').trim();
+}
+
+/** 是不是 0～23 的整數（接受「7」「07」，不接受「7.5」「abc」「25」） */
+function isValidHour_(s) {
+  return /^\d{1,2}$/.test(s) && Number(s) <= 23;
+}
+
+/** 7 →「07:00」 */
+function hourLabel_(h) {
+  return (h < 10 ? '0' : '') + h + ':00';
+}
+
+/** 刪掉某個函式的所有觸發器（重新開啟前先清掉，才不會一天寄兩封） */
 function removeTriggers_(handlerName) {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === handlerName) ScriptApp.deleteTrigger(t);
@@ -747,6 +899,7 @@ function runMenu_(title, fn) {
   }
 }
 
+/** 把常見的權限錯誤翻成中文並附上解法；其他錯誤原樣顯示 */
 function friendlyError_(err) {
   const msg = String((err && err.message) || err);
   if (/authoriz|permission|not sufficient|權限/i.test(msg)) {
@@ -755,8 +908,13 @@ function friendlyError_(err) {
   return msg;
 }
 
+/** 記到執行紀錄與「錯誤紀錄」分頁：只記在做什麼和錯誤訊息，不會記 key；這裡自己出錯也不會往外丟 */
 function logError_(where, err) {
-  console.error(where + '：' + ((err && err.stack) || err));
+  try {
+    console.error(where + '：' + ((err && err.stack) || err));
+  } catch (e) {
+    // 印不出來就算了
+  }
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName(ERROR_LOG_SHEET);
@@ -777,6 +935,7 @@ function getReportTo_() {
   return getProp_('REPORT_TO') || Session.getEffectiveUser().getEmail();
 }
 
+/** 讀一個指令碼屬性；沒設就回傳 null */
 function getProp_(name) {
   return PropertiesService.getScriptProperties().getProperty(name);
 }
@@ -786,17 +945,30 @@ function numOrNull_(v, digits) {
   return typeof v === 'number' && isFinite(v) ? roundTo_(v, digits === undefined ? 2 : digits) : null;
 }
 
+/** 四捨五入到小數 2 位 */
 function round2_(v) {
   return roundTo_(v, 2);
 }
 
+/** 四捨五入到小數 digits 位；不是數字就回傳 null（信裡會寫「查無資料」，不會補數字） */
 function roundTo_(v, digits) {
   if (typeof v !== 'number' || !isFinite(v)) return null;
   const f = Math.pow(10, digits);
   return Math.round(v * f) / f;
 }
 
-/** 以美東時間判斷是否為平日；國定假日無法自動判斷（見 README 已知限制） */
+/** 台灣時間的星期幾 →「週四」（用 u 的數字對照，不受 Apps Script 語系影響） */
+function zhWeekday_(now) {
+  return WEEKDAYS_ZH[Number(Utilities.formatDate(now, REPORT_TIMEZONE, 'u')) - 1];
+}
+
+/**
+ * 以美東時間判斷是否為平日；國定假日無法自動判斷（見 README 已知限制）。
+ * 台灣早上 7 點 = 美東前一天傍晚 18:00（冬令）／19:00（夏令），美股已收盤：
+ * 台灣週二～週六早上算「有開盤」（看的是前一晚的收盤），週日、週一早上算「休市」（沿用週五收盤）。
+ * REPORT_HOUR 設在 6～11 點都是這個結果（美東還是前一天、已收盤）。設在 12～21 點，美東已經過了午夜，
+ * 「今天有沒有開盤」看的是美東當天，數字仍是前一個收盤；設在 22 點到隔天 5 點，美股可能正在交易，數字會是盤中的。
+ */
 function isUsWeekday_(now) {
   const d = Utilities.formatDate(now, 'America/New_York', 'u'); // 1=週一 … 7=週日
   return Number(d) <= 5;
@@ -821,6 +993,7 @@ function lastUsCloseDate_(now) {
   return (d.getUTCMonth() + 1) + '月' + d.getUTCDate() + '日';
 }
 
+/** 純文字版的「原始數據」：每項一行並附來源，數字直接取自 data（不經過 AI） */
 function rawTable_(data) {
   return data.items.map(function (it) {
     const arrow = it.changePct === null ? '' : it.changePct >= 0 ? '📈' : '📉';
@@ -843,9 +1016,13 @@ function noteKey_(name) {
 /**
  * 日報 → Markdown。frontmatter 的數字全部直接取自 data（不經過 AI），
  * 查無資料的欄位留空，不補任何數字。
+ * meta（可省略）提供 updatedIso 與 runBy，寫成 updated:（ISO 時間，+08:00）與 trigger:（每日排程／手動寄送／手動更新）。
  */
-function buildReportMarkdown_(isoDate, data, summary, secretary) {
-  const fm = ['---', '類型: 日報', '日期: ' + isoDate, '美股開盤: ' + (data.usMarketOpen ? 'true' : 'false')];
+function buildReportMarkdown_(isoDate, data, summary, secretary, meta) {
+  const fm = ['---', '類型: 日報', '日期: ' + isoDate];
+  if (meta && meta.updatedIso) fm.push('updated: ' + meta.updatedIso);
+  if (meta && meta.runBy) fm.push('trigger: ' + meta.runBy);
+  fm.push('美股開盤: ' + (data.usMarketOpen ? 'true' : 'false'));
   data.items.forEach(function (it) {
     if (!it.key) return;
     fm.push(it.key + ': ' + (it.price === null ? '' : it.price));
@@ -880,6 +1057,7 @@ function buildReportMarkdown_(isoDate, data, summary, secretary) {
   ]).join('\n');
 }
 
+/** 秘書待辦 → Markdown 清單（日報 .md、「完整」版信件與純文字信共用） */
 function secretaryMarkdown_(sec) {
   const lines = ['- 待確認草稿：' + sec.drafts.length + ' 封（在 Gmail「草稿」）'];
   sec.drafts.forEach(function (d) { lines.push('  - [ ] ' + d.subject + (d.checks ? '（' + d.checks + ' 處需人工確認）' : '')); });

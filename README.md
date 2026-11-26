@@ -28,6 +28,7 @@
 README.md, LICENSE（程式碼 MIT／教材 CC BY 4.0）, CLAUDE.md, .env.example, .gitignore
 index.html, .nojekyll                 GitHub Pages 入口（導向 slides/handbook.html）
 docs/student/
+  student-journey-map.md              一張圖看懂全程：路線圖、架構圖、每日流程、選單按鈕、安全感、卡關排除
   student-stage-0-concepts.md         概念、全自動的邊界、ChatGPT Tasks 5 分鐘暖身
   student-stage-1-lab.md              ChatGPT Tasks 完整日報
   student-stage-2-lab.md              一鍵副本 Sheet + OpenRouter + Gmail、三種版面、日報紀錄
@@ -35,7 +36,7 @@ docs/student/
   student-stage-4-secretary-lab.md    商務秘書：信件 → 回覆草稿 + 報價單草稿
   student-free-tools-menu.md          免費工具選單、Markdown 檢視器比較、「免費的真相」
   student-security-gmail-keys.md      Gmail 授權、API key、客戶資料與知識庫保護
-  img/                                編號截圖（stage2-template-*：三種版面樣張；stage3-*：Obsidian 實機）
+  img/                                journey-map.svg（路線圖）與編號截圖（stage2-template-*：三種版面樣張；stage3-*：Obsidian 實機）
 docs/instructor-template/             講師教案「去敏範本」（時間表、教案、口白稿、彩排 checklist）——開課後公開，目前僅在講師本機
 docs/instructor/                      （本機專用，被 .gitignore 忽略，永不公開）實際版：日期、場地、範本連結
 lab-assets/
@@ -51,7 +52,7 @@ slides/
 
 ## 快速開始
 
-**給學員**：照順序讀 `docs/student/student-stage-0-concepts.md` → `stage-1` → `stage-2` → `stage-3-obsidian` → `stage-4-secretary`。上課主檔是 [`slides/handbook.html`](slides/handbook.html)。
+**給學員**：覺得路很長？先看 [一張圖看懂全程](docs/student/student-journey-map.md)。接著照順序讀 `docs/student/student-stage-0-concepts.md` → `stage-1` → `stage-2` → `stage-3-obsidian` → `stage-4-secretary`。上課主檔是 [`slides/handbook.html`](slides/handbook.html)。
 
 **給講師**：
 1. 講師教案（時間表、口白稿、彩排 checklist）的去敏範本 `docs/instructor-template/` 預計**開課後公開**；在那之前只放在講師本機。

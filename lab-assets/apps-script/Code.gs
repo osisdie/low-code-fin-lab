@@ -486,10 +486,12 @@ function sheetFallback_(item, digits) {
     const q = fetchYahooQuote_(ySymbol, digits);
     if (hasPrice) {
       return Object.assign({}, item, { prevClose: q.prevClose, changePct: q.changePct,
-        source: 'Google Finance；漲跌由 Yahoo ' + ySymbol + ' 補' });
+        source: q.changePct === null
+          ? 'Google Finance（漲跌查無資料：Yahoo ' + ySymbol + ' ' + YAHOO_NO_PREV + '）'
+          : 'Google Finance；漲跌由 Yahoo ' + ySymbol + ' 補' });
     }
     return Object.assign({}, item, { price: q.price, prevClose: q.prevClose, changePct: q.changePct,
-      source: 'Yahoo Finance ' + ySymbol + '（Google Finance 查無資料，改用備援）' });
+      source: 'Yahoo Finance ' + ySymbol + '（Google Finance 查無資料，改用備援' + (q.changePct === null ? '；' + YAHOO_NO_PREV + '，漲跌查無資料' : '') + '）' });
   } catch (err) {
     console.warn('Yahoo 備援 ' + ySymbol + ' 失敗：' + err.message);
     return Object.assign({}, item, { source: hasPrice
@@ -503,12 +505,13 @@ function sheetFallback_(item, digits) {
  * 還是不行就改用 Yahoo Finance 的 BTC-USD；都失敗才寫「查無資料」。
  * 錯誤碼只記到執行紀錄，不放進給 AI 的資料（不然摘要會把「429」當成數字寫進去）。
  */
-const BTC_NAME = 'Bitcoin BTC/USD（24h）';
+const BTC_NAME = 'Bitcoin BTC/USD（24h）';               // CoinGecko 的漲跌是「過去 24 小時」
+const BTC_NAME_YAHOO = 'Bitcoin BTC/USD（與前一 UTC 日收盤比）'; // Yahoo 的日 K 在 UTC 00:00 切日，不是 24 小時
 const COINGECKO_RETRIES = 2;        // CoinGecko 失敗後再試幾次
 const COINGECKO_RETRY_WAIT_MS = 3000; // 每次重試前等幾毫秒（3 秒）
 
 function fetchBitcoin_() {
-  const base = { name: BTC_NAME, symbol: 'BTC', key: 'BTC', prevClose: null };
+  const base = { name: BTC_NAME, symbol: 'BTC', key: 'BTC', prevClose: null }; // key 固定是 BTC，換來源也不會多一欄
   try {
     const cg = fetchCoinGeckoBtc_();
     return [Object.assign({}, base, { price: cg.price, changePct: cg.changePct, source: 'CoinGecko' })];
@@ -517,12 +520,13 @@ function fetchBitcoin_() {
   }
   try {
     const q = fetchYahooQuote_('BTC-USD', 2);
-    return [Object.assign({}, base, { price: q.price, prevClose: q.prevClose, changePct: q.changePct,
-      source: 'Yahoo Finance BTC-USD（CoinGecko 暫時無法取得，改用備援；漲跌為與前一日收盤相比）' })];
+    return [Object.assign({}, base, { name: BTC_NAME_YAHOO, price: q.price, prevClose: q.prevClose, changePct: q.changePct,
+      source: 'Yahoo Finance BTC-USD（CoinGecko 暫時無法取得，改用備援；' +
+        (q.changePct === null ? YAHOO_NO_PREV + '，漲跌查無資料' : '漲跌為與前一 UTC 日收盤相比') + '）' })];
   } catch (err) {
     console.warn('Yahoo BTC-USD 也失敗：' + err.message);
   }
-  return [Object.assign({}, base, { price: null, changePct: null, source: '暫時無法取得（CoinGecko 與 Yahoo 備援都沒有回應）' })];
+  return [Object.assign({}, base, { name: 'Bitcoin BTC/USD', price: null, changePct: null, source: '暫時無法取得（CoinGecko 與 Yahoo 備援都沒有回應）' })];
 }
 
 /** CoinGecko 現價與 24 小時漲跌；429 或 5xx 會等一下再試，最後仍失敗就丟出錯誤 */
@@ -553,7 +557,8 @@ function fetchYahooItems_() {
   return YAHOO_ITEMS.map(function (it) {
     try {
       const q = fetchYahooQuote_(it.symbol, 2);
-      return { name: it.name, symbol: it.symbol, key: it.key, price: q.price, prevClose: q.prevClose, changePct: q.changePct, source: 'Yahoo Finance' };
+      return { name: it.name, symbol: it.symbol, key: it.key, price: q.price, prevClose: q.prevClose, changePct: q.changePct,
+        source: q.changePct === null ? 'Yahoo Finance（' + YAHOO_NO_PREV + '，漲跌查無資料）' : 'Yahoo Finance' };
     } catch (err) {
       console.warn('Yahoo ' + it.symbol + ' 失敗：' + err.message);
       return { name: it.name, symbol: it.symbol, key: it.key, price: null, prevClose: null, changePct: null, source: 'Yahoo Finance（暫時無法取得）' };
@@ -561,18 +566,48 @@ function fetchYahooItems_() {
   });
 }
 
-/** Yahoo Finance 最近兩個日收盤 → 現價、前一收盤、漲跌幅%（失敗會丟出錯誤，由呼叫端決定怎麼處理） */
+/**
+ * Yahoo Finance 日 K → 現價、前一收盤、漲跌幅%（抓不到現價會丟出錯誤，由呼叫端決定怎麼處理）。
+ * 只跟「緊接在前的那一根日 K」比：Yahoo 有時前一天的收盤是 null（2026-11-26 實測 BTC-USD），
+ * 不能把 null 濾掉、拿更早一天的收盤來比，不然漲跌會算錯（實測把 +2.5% 算成 +1.35%）。
+ * 股票、匯率只有交易日才有日 K，所以週一的前一根是週五，這樣是對的。
+ * 前一根是 null、或跟今天隔太久（資料有缺口）時，前一收盤與漲跌回傳 null（信裡寫「查無資料」），不往前找。
+ * meta.previousClose 在 range=5d 時不會出現；meta.chartPreviousClose 是「抓回來的第一根之前」的收盤，
+ * 只有今天剛好是第一根時才等於前一天收盤，所以只在那種情況用它。
+ */
+const YAHOO_MAX_GAP_DAYS = 4;            // 前一根日 K 最多隔幾天（週末再加一天假日）；更久就當資料有缺口
+const YAHOO_NO_PREV = '前一日收盤缺資料'; // 前一收盤拿不到時，來源欄的說明
+
 function fetchYahooQuote_(symbol, digits) {
-  // 抓最近 5 天的日收盤：遇到週末或假日，也還有最後兩個收盤可以比較
-  // 加上一般瀏覽器的 User-Agent，減少被這個非官方端點拒絕
+  // 抓最近 5 天的日 K；加上一般瀏覽器的 User-Agent，減少被這個非官方端點拒絕
   const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + '?range=5d&interval=1d';
   const res = UrlFetchApp.fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-  const closes = JSON.parse(res.getContentText()).chart.result[0].indicators.quote[0].close
-    .filter(function (v) { return v !== null; });
-  if (closes.length < 2) throw new Error('資料不足');
-  const price = closes[closes.length - 1];
-  const prev = closes[closes.length - 2];
+  const r = JSON.parse(res.getContentText()).chart.result[0];
+  const meta = r.meta || {};
+  const ts = r.timestamp || [];
+  const closes = r.indicators.quote[0].close || [];
+  const last = closes.length - 1;
+  // 今天這一根還沒有收盤值時，用 meta 的即時價
+  const price = isNum_(closes[last]) ? closes[last] : meta.regularMarketPrice;
+  if (last < 0 || !isNum_(price)) throw new Error('資料不足');
+
+  let prev = null;
+  if (last >= 1) {
+    const gapDays = (ts[last] - ts[last - 1]) / 86400;
+    if (isNum_(closes[last - 1]) && gapDays > 0 && gapDays <= YAHOO_MAX_GAP_DAYS) prev = closes[last - 1];
+  } else if (isNum_(meta.chartPreviousClose)) {
+    prev = meta.chartPreviousClose; // 只有今天這一根：chartPreviousClose 就是緊接在前的收盤
+  }
+  if (!prev) {
+    console.warn('Yahoo ' + symbol + '：' + YAHOO_NO_PREV + '（前一根日 K 是空的或隔太久），漲跌寫查無資料');
+    return { price: roundTo_(price, digits), prevClose: null, changePct: null };
+  }
   return { price: roundTo_(price, digits), prevClose: roundTo_(prev, digits), changePct: round2_((price / prev - 1) * 100) };
+}
+
+/** 是有效的數字（Yahoo 的 null、undefined、NaN 都不算） */
+function isNum_(v) {
+  return typeof v === 'number' && isFinite(v);
 }
 
 /** AI 開不開：指令碼屬性 AI_ENABLED 為 false／off／0／no 就是關；沒設這個屬性時，有 OpenRouter key 才算開。 */

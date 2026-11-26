@@ -87,6 +87,8 @@ const STATUS_HELP = {
 };
 // 還沒結案的狀態：每次執行會回頭檢查這些紀錄
 const OPEN_STATUSES = [SECRETARY_STATUS.DRAFT, SECRETARY_STATUS.HUMAN];
+// 已結案的狀態：重新貼「AI秘書」標籤時，如果客戶沒有新的來信，就直接略過（不呼叫 AI、不建草稿）
+const CLOSED_STATUSES = [SECRETARY_STATUS.REPLIED, SECRETARY_STATUS.DISCARDED, SECRETARY_STATUS.SKIPPED, SECRETARY_STATUS.NO_REPLY];
 const REFRESH_MAX_PER_RUN = 20;          // 每次最多回頭檢查幾筆，控制 Gmail 讀取次數（找不到的信不算）
 const REFRESH_TIME_BUDGET_MS = 120000;   // 回頭檢查最多花 120 秒，剩下的時間留給處理新信
 const SECRETARY_RUN_LIMIT_MS = 270000;   // 整輪約 270 秒後就不再開始處理新的一串信（Apps Script 每次最多 6 分鐘）
@@ -94,7 +96,8 @@ const SECRETARY_RESERVE_MS = 90000;      // 回頭檢查舊紀錄時，至少留
 const REFRESH_CURSOR_PROP = 'SECRETARY_REFRESH_CURSOR'; // 程式自動寫入：下次從第幾筆還沒結案的紀錄接著檢查（輪流，舊的不會一直排不到）
 const NEXT_STEP_HEADING = '## 下一步（你要做的事）';
 // 「秘書紀錄」分頁的欄位（與知識庫筆記的 frontmatter 對應）；舊表缺的欄位會自動加在最右邊
-const SECRETARY_LOG_COLUMNS = ['時間', '客戶', '主旨', '意圖', '狀態', '草稿', '報價單', '報價合計', '需人工原因', '下一步', '更新時間', 'Gmail 連結', '信件ID', '草稿ID', '知識庫筆記'];
+// 「最後來信」：秘書處理過的最新一封來信的時間（判斷客戶有沒有再來信、回覆從什麼時候算起）
+const SECRETARY_LOG_COLUMNS = ['時間', '客戶', '主旨', '意圖', '狀態', '草稿', '報價單', '報價合計', '需人工原因', '下一步', '更新時間', '最後來信', 'Gmail 連結', '信件ID', '草稿ID', '知識庫筆記'];
 // 舊版「秘書紀錄」的欄位名稱：同一個意思，沿用舊欄位，不重複加
 const SECRETARY_LOG_ALIASES = { '時間': ['處理時間'], 'Gmail 連結': ['信件連結'] };
 
@@ -182,7 +185,8 @@ function menuProcessSecretary() {
       '已建立 ' + r.drafted + ' 封回覆草稿（在 Gmail「草稿」），' + r.quotes + ' 份報價單草稿；每封信的紀錄都在「' + VAULT_ROOT_NAME + '/秘書」與「' + SECRETARY_LOG_SHEET + '」分頁。\n' +
       (r.noReply ? r.noReply + ' 封判斷為推銷、廣告或感謝信，沒有建立草稿（狀態「略過」或「不需回覆」）。\n' : '') +
       (r.failed ? r.failed + ' 封處理失敗，已貼上「' + SECRETARY_FAIL_LABEL + '」標籤，請人工處理。\n' : '') +
-      (r.skipped ? r.skipped + ' 封已經有 AI 草稿，這次略過（不會重複建立）。\n' : '') +
+      (r.skipped ? r.skipped + ' 封略過：已經有 AI 草稿、已經結案、或只有你自己寄的信（不會重複建立草稿）。\n' : '') +
+      (r.followups ? r.followups + ' 封是客戶在你回覆後又來信，已在原本的紀錄加上「追蹤」並建立新的回覆草稿。\n' : '') +
       (r.recovered ? r.recovered + ' 封上次處理到一半中斷（草稿有建、紀錄沒寫），這次補寫了紀錄。\n' : '') +
       (r.deferred ? r.deferred + ' 封因為時間不夠，留到下次處理（「' + SECRETARY_LABEL + '」標籤沒動）。\n' : '') +
       (r.refreshed ? '之前的紀錄有 ' + r.refreshed + ' 筆更新了狀態（已回覆、已捨棄，或照你在 Obsidian 改的狀態）。\n' : '') +
@@ -226,7 +230,7 @@ function processSecretaryMail() {
   // 安全：AI 關閉就整個略過（排程觸發也一樣）：0 次 AI 呼叫、不讀信、標籤不動、不寫紀錄
   if (!isAiEnabled_()) {
     console.warn('AI 已關閉，略過秘書處理。');
-    return { drafted: 0, quotes: 0, failed: 0, skipped: 0, noReply: 0, refreshed: 0, recovered: 0, deferred: 0, priceSkipped: [] };
+    return { drafted: 0, quotes: 0, failed: 0, skipped: 0, noReply: 0, refreshed: 0, recovered: 0, deferred: 0, followups: 0, priceSkipped: [] };
   }
   const labels = {
     inbox: getOrCreateLabel_(SECRETARY_LABEL),
@@ -234,7 +238,7 @@ function processSecretaryMail() {
     fail: getOrCreateLabel_(SECRETARY_FAIL_LABEL),
   };
   const priceList = readPriceList_();
-  const result = { drafted: 0, quotes: 0, failed: 0, skipped: 0, noReply: 0, refreshed: 0, recovered: 0, deferred: 0, priceSkipped: priceList.skipped };
+  const result = { drafted: 0, quotes: 0, failed: 0, skipped: 0, noReply: 0, refreshed: 0, recovered: 0, deferred: 0, followups: 0, priceSkipped: priceList.skipped };
 
   // 先更新之前的紀錄（草稿還在嗎？回了沒？）；只看還沒結案的，有上限；失敗不影響處理新信
   try {
@@ -285,10 +289,44 @@ function processSecretaryThread_(thread, labels, prices, result) {
     // 草稿也算在 thread 裡，先排除，才不會拿自己的草稿去判讀
     const msgs = thread.getMessages().filter(function (m) { return !m.isDraft(); });
     if (!msgs.length) throw new Error('這串信裡沒有可以判讀的信');
-    msg = msgs[msgs.length - 1];
+    // 只處理「來信」：絕不替你自己寄出的信（例如你已經寄出的回覆）寫草稿
+    const me = myAddresses_();
+    const inbound = inboundMessages_(msgs, me);
+    if (!inbound.length) {
+      thread.removeLabel(labels.inbox).addLabel(labels.done);
+      result.skipped++;
+      console.log('沒有來信（只有你自己寄的信），略過：' + thread.getFirstMessageSubject());
+      return;
+    }
+    msg = inbound[inbound.length - 1];
+    // 這串信之前處理過：沒有新的來信 → 已結案就略過；客戶在上次處理（或你的回覆）之後又來信 → 追蹤
+    const row = findSecretaryRow_(thread.getId());
+    let followup = false;
+    if (row) {
+      // 「新的來信」＝比上次處理過的來信新，也比你最後一次寄出的信新（舊列沒有「最後來信」就用處理時間）
+      const lastHandled = Math.max(rowTime_(row.get('最後來信')) || rowTime_(row.get('時間')), latestOwnReply_(msgs, inbound, me));
+      if (msg.getDate().getTime() <= lastHandled) {
+        // 沒有新的來信：不呼叫 AI、不建草稿、紀錄不動（想讓秘書重寫：先刪掉「秘書紀錄」那一列，再貼標籤）
+        thread.removeLabel(labels.inbox).addLabel(labels.done);
+        result.skipped++;
+        console.log((CLOSED_STATUSES.indexOf(String(row.get('狀態'))) !== -1 ? '已結案，略過：' : '沒有新的來信，略過：') + thread.getFirstMessageSubject());
+        return;
+      }
+      followup = true;
+    }
     const triage = triageEmail_(msg, prices);
     triage.customer = canonicalCustomer_(triage.customer); // 同一位客戶只用一個名字
     const rec = newSecretaryRecord_(thread, msg, triage, prices);
+    if (followup) {
+      // 追蹤：同一筆紀錄（同一列、同一篇筆記），主旨與第一次處理的時間照舊，另外記一筆「追蹤」
+      const firstAt = row.get('時間');
+      if (firstAt instanceof Date) rec.time = firstAt;
+      rec.subject = String(row.get('主旨') || rec.subject).replace(/^'/, '');
+      rec.intent = String(row.get('意圖') || rec.intent);
+      rec.followup = { at: new Date(), subject: redactEmails_(msg.getSubject()), summary: triage.summary || '' };
+      rec.reasons.push('客戶在上次處理之後又來信（追蹤），草稿是回覆最新的那封');
+      result.followups = (result.followups || 0) + 1;
+    }
 
     if (triage.noReply) {
       // 推銷／廣告、單純感謝：不建立草稿，只留紀錄
@@ -366,7 +404,8 @@ function processSecretaryThread_(thread, labels, prices, result) {
  */
 function recoverSecretaryRecord_(thread, prices) {
   const msgs = thread.getMessages().filter(function (m) { return !m.isDraft(); });
-  const msg = msgs[msgs.length - 1] || thread.getMessages()[0];
+  const inbound = inboundMessages_(msgs, myAddresses_());
+  const msg = inbound[inbound.length - 1] || msgs[0] || thread.getMessages()[0];
   let triage;
   try {
     triage = triageEmail_(msg, prices);
@@ -921,6 +960,7 @@ function newSecretaryRecord_(thread, msg, triage, prices) {
     items: items,
     permalink: thread.getPermalink(),
     threadId: thread.getId(),
+    lastInbound: msgDate_(msg),
     draftId: '',
     quoteNote: '',
     total: '',
@@ -928,6 +968,15 @@ function newSecretaryRecord_(thread, msg, triage, prices) {
     status: '',
     reasons: [],
   };
+}
+
+/** 信的時間；讀不到就空字串 */
+function msgDate_(m) {
+  try {
+    return m && m.getDate ? m.getDate() : '';
+  } catch (err) {
+    return '';
+  }
 }
 
 /** 處理失敗的信也留一篇紀錄（狀態「需人工」、沒有草稿）；客戶寫寄件人的顯示名稱，不寫信箱 */
@@ -1039,6 +1088,10 @@ function secretaryNoteBlock_(rec) {
     if (rec.total !== '') lines.push('', '- 報價合計（系統依報價表計算）：' + (typeof rec.total === 'number' ? money_(rec.total) : rec.total));
     if (rec.quoteNote) lines.push('- 報價單：[[秘書/' + rec.quoteNote + '|' + rec.quoteNote + ']]');
   }
+  if (rec.followups && rec.followups.length) {
+    lines.push('', '## 追蹤紀錄', '');
+    rec.followups.forEach(function (f) { lines.push(f); });
+  }
   lines.push('', '## 為什麼需要人工處理', '');
   if (rec.reasons.length) rec.reasons.forEach(function (r) { lines.push('- ' + mdInline_(redactEmails_(r))); });
   else lines.push('- （沒有特別標記；寄出前仍請把草稿讀過一次）');
@@ -1117,6 +1170,57 @@ function findSecretaryRow_(threadId) {
   return null;
 }
 
+/** 試算表的時間（Date 或文字）→ 毫秒；讀不懂回傳 0 */
+function rowTime_(v) {
+  const t = v instanceof Date ? v.getTime() : Date.parse(String(v || ''));
+  return isFinite(t) ? t : 0;
+}
+
+/** 這封信是不是你（帳號或別名）寄的 */
+function fromMe_(m, me) {
+  const from = String(m.getFrom() || '').toLowerCase();
+  return me.some(function (a) { return from.indexOf(a) !== -1; });
+}
+
+/**
+ * 這串信裡的「來信」（依時間順序）：不是你寄的信；或是這串信的第一封、而且是你寄給你自己的（課堂練習信）。
+ * 你自己寄出的其他信（例如已經寄出的回覆）一律不算，秘書絕不替它們寫回覆草稿。
+ */
+function inboundMessages_(msgs, me) {
+  return msgs.filter(function (m, i) {
+    if (!fromMe_(m, me)) return true;
+    if (i !== 0) return false;
+    const to = String((m.getTo && m.getTo()) || '').toLowerCase();
+    return me.some(function (a) { return to.indexOf(a) !== -1; });
+  });
+}
+
+/** 你在這串信裡最後一次寄出（不是來信）的時間；沒有就回傳 0 */
+function latestOwnReply_(msgs, inbound, me) {
+  return msgs.reduce(function (t, m) {
+    return inbound.indexOf(m) === -1 && fromMe_(m, me) ? Math.max(t, m.getDate().getTime()) : t;
+  }, 0);
+}
+
+/** 一行追蹤紀錄：時間、最新那封的主旨與摘要（外來文字都經過整理） */
+function followupLine_(f) {
+  return '- ' + Utilities.formatDate(f.at, REPORT_TIMEZONE, 'yyyy-MM-dd HH:mm') + '　客戶又來信（主旨「' + mdInline_(f.subject) + '」）' +
+    (f.summary ? '：' + mdInline_(redactEmails_(f.summary)) : '');
+}
+
+/** 舊筆記裡程式產生段落中「## 追蹤紀錄」底下的那幾行 */
+function followupLines_(block) {
+  const i = String(block).indexOf('## 追蹤紀錄');
+  if (i === -1) return [];
+  const out = [];
+  String(block).slice(i).split('\n').slice(1).some(function (l) {
+    if (/^## /.test(l)) return true;
+    if (/^- /.test(l)) out.push(l);
+    return false;
+  });
+  return out;
+}
+
 /** 這串信之前建立的 AI 草稿還在嗎？（用「秘書紀錄」記下的草稿ID 查，你刪掉開頭標記也認得） */
 function recordDraftAlive_(thread) {
   try {
@@ -1175,6 +1279,8 @@ function saveSecretaryRecord_(rec) {
   try {
     ensureCustomerNote_(rec.customer);
     const target = secretaryNoteTarget_(rec);
+    // 追蹤紀錄：沿用舊筆記裡的，再加上這一次
+    rec.followups = (target.parts ? followupLines_(target.parts.block) : []).concat(rec.followup ? [followupLine_(rec.followup)] : []);
     const content = target.parts
       // 沿用舊筆記：frontmatter 只改程式負責的欄位，標題、你加的欄位、「我的備註」都保留
       ? setFrontmatterKeys_(target.parts.before, secretaryNoteKeys_(rec)) + GEN_START + '\n' + secretaryNoteBlock_(rec) + GEN_END + target.parts.after
@@ -1196,6 +1302,7 @@ function saveSecretaryRecord_(rec) {
     '需人工原因': redactEmails_(rec.reasons.join('；')),
     '下一步': nextStepShort_(rec.status, rec.intent, !!rec.quoteNote, rec.draft),
     '更新時間': new Date(),
+    '最後來信': rec.lastInbound || '',
     'Gmail 連結': rec.permalink,
     '信件ID': rec.threadId,
     '草稿ID': rec.draftId,
@@ -1347,9 +1454,9 @@ function refreshSecretaryStatuses_(budgetMs) {
     }
     if (!thread) continue; // 找不到的信不算在上限裡
     checked++;
-    const t = r[col('時間')];
-    const since = t instanceof Date ? t.getTime() : Date.parse(String(t));
-    if (!isFinite(since)) continue; // 處理時間讀不懂：不改，避免把原信當成你的回覆
+    // 回覆從「處理時間」與「最後來信」較晚的那個算起：追蹤之後，你之前的舊回覆不算
+    const since = Math.max(rowTime_(r[col('時間')]), rowTime_(r[col('最後來信')]));
+    if (!(since > 0)) continue; // 處理時間讀不懂：不改，避免把原信當成你的回覆
     const draftId = String(r[col('草稿ID')] || '');
     if (draftId && draftIds === null) {
       try {

@@ -96,6 +96,10 @@ const REFRESH_MAX_PER_RUN = 20;          // 每次最多回頭檢查幾筆，控
 const REFRESH_TIME_BUDGET_MS = 120000;   // 回頭檢查最多花 120 秒，剩下的時間留給處理新信
 const SECRETARY_RUN_LIMIT_MS = 270000;   // 整輪約 270 秒後就不再開始處理新的一串信（Apps Script 每次最多 6 分鐘）
 const SECRETARY_RESERVE_MS = 90000;      // 回頭檢查舊紀錄時，至少留這麼多時間給新信
+// 依實測調整：免費模型一封要寫草稿的信約 40～75 秒（2 次 AI），不寫草稿的約 40 秒，5 封一輪約 4 分鐘。
+// 開始下一封之前先估：已用時間 + max(90 秒, 這一輪平均每封 × 1.3) 超過 330 秒就停（Apps Script 360 秒會被強制中斷）
+const SECRETARY_THREAD_ESTIMATE_MS = 90000; // 這一輪還沒處理過任何一封時，預估一封要這麼久
+const SECRETARY_RUN_SAFE_MS = 330000;       // 預估做完下一封會超過這個時間，就不開始
 const REFRESH_CURSOR_PROP = 'SECRETARY_REFRESH_CURSOR'; // 程式自動寫入：下次從第幾筆還沒結案的紀錄接著檢查（輪流，舊的不會一直排不到）
 const NEXT_STEP_HEADING = '## 下一步（你要做的事）';
 // 「秘書紀錄」分頁的欄位（與知識庫筆記的 frontmatter 對應）；舊表缺的欄位會自動加在最右邊
@@ -254,16 +258,28 @@ function processSecretaryMail() {
   }
 
   const threads = labels.inbox.getThreads(0, MAX_THREADS_PER_RUN);
+  const spent = []; // 這一輪每封花了幾毫秒
   for (let i = 0; i < threads.length; i++) {
-    if (secretaryTimeUp_(started)) {
+    if (secretaryTimeUp_(started) || secretaryNextTooLong_(Date.now() - started, spent)) {
       // 時間不夠：剩下的信「AI秘書」標籤不動，下次執行再處理
       result.deferred = threads.length - i;
       console.warn('秘書：時間快用完，' + result.deferred + ' 封信留到下次處理（「' + SECRETARY_LABEL + '」標籤沒動）');
       break;
     }
+    const t0 = Date.now();
     processSecretaryThread_(threads[i], labels, priceList.map, result);
+    spent.push(Date.now() - t0);
   }
   return result;
+}
+
+/**
+ * 依這一輪的速度，判斷「再開始一封」會不會太晚：已用時間 + max(預設 90 秒, 平均每封 × 1.3) 超過 330 秒就不開始。
+ * 第一封還沒有平均，用預設 90 秒。270 秒的上限（secretaryTimeUp_）另外照樣有效。
+ */
+function secretaryNextTooLong_(elapsedMs, spent) {
+  const avg = spent.length ? spent.reduce(function (a, b) { return a + b; }, 0) / spent.length : 0;
+  return elapsedMs + Math.max(SECRETARY_THREAD_ESTIMATE_MS, 1.3 * avg) > SECRETARY_RUN_SAFE_MS;
 }
 
 /** 這一輪是不是該停了（不再開始處理新的一串信）；寫成函式方便測試 */

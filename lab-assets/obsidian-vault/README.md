@@ -35,5 +35,5 @@ obsidian-vault/
 - 範例只有 3 篇日報（10-28～10-30），但標的筆記的走勢圖用的是 30 天的虛構「日報紀錄」（最後 3 天＝範例日報的數字），所以圖比下方的表格長，這是刻意的：避免放 30 篇範例日報讓 repo 變大。
 - 走勢圖第一次顯示時，Obsidian 會問「Display Mermaid diagrams in this vault?」，按 **Allow**（內建功能，不是社群外掛）。
 - `日報/`、`標的/`、`秘書/`、`客戶/`、`筆記/` 的範例都標了 `範例: true`，數字與公司皆為虛構，**不構成投資建議**。
-- `首頁.md`、`範本/每日筆記.md`、`範本/每週回顧.md`、兩個 `.base`、`.obsidian/*.json` 與 `apps-script/Vault.gs` 的 `STARTER_FILES` 內容一致；`標的/說明.md` 與 `symbolFolderReadme_()` 一致。修改請兩邊一起改。
+- `首頁.md`、`範本/每日筆記.md`、`範本/每週回顧.md`、兩個 `.base`、`.obsidian/*.json` 與 `apps-script/Vault.gs` 的 `STARTER_FILES` 內容一致；`標的/說明.md` 與 `symbolFolderReadme_()` 一致。修改請兩邊一起改，並把「改之前」那一版的雜湊加進 `STARTER_PREVIOUS`（學員按 ① 時，沒改過的舊檔才會自動換成新版）。
 - 只用 Obsidian **內建**功能（每日筆記、範本、Bases、關聯圖），不需要安裝任何社群外掛。

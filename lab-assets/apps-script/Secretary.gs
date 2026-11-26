@@ -62,6 +62,9 @@ const REFUND_PROMISE_RE = new RegExp([
   "\\b(we'?ll|we will|will be|will|can|shall|have|has been)\\b[^.!?\\n]{0,30}\\b(refund|reimburs|compensat)",
   '\\bfull refund\\b',
 ].join('|'), 'i');
+// ACTION_CLAIM_RE：說事情「已經」做了（已完成審核、已啟動流程、已確認收款…），或提出／答應具體時段（可於 11/13 上午安排、11/14 下午兩點）。
+//   這種話是 AI 編出來的事實或承諾，正規表示式只能抓常見寫法，提示詞（prompts/05 第 6、7 條）才是第一道防線。
+const ACTION_CLAIM_RE = /已(經)?(完成|確認|審核|啟動|安排|處理好|收到款項|收到匯款|入帳|開立|寄出)|可(於|在|以在)[^。！？!?\n【]{0,20}(安排|進行|見面|開會|拜訪)|\d{1,2}\s*[\/月]\s*\d{1,2}\s*[日號]?[^。！？!?\n【]{0,8}(上午|下午|早上|晚上|中午|\d{1,2}\s*[:：點])/;
 const PROMISE_RE = /保證|一定會|免費|優惠價|[一二三四五六七八九]折|打[^。！？!?\n【]{0,3}折|[0-9０-９一二三四五六七八九十月日號週天底中初/\-]{1,8}\s*前(交件|交貨|交付|完成|送達|寄出|上線)|\bguarantee|\bfree of charge|\bdiscount/i;
 const FAILED_INTENT = '未判讀'; // 處理失敗、沒有判讀結果的信
 const UNSIGNED_CUSTOMER = '未署名客戶'; // 信裡找不到客戶名稱（或只找到你自己）時用這個
@@ -169,9 +172,11 @@ const REPLY_PROMPT = [
   '1. 用專業、有禮貌的繁體中文商務書信語氣，150～250 字。',
   '2. 不要寫任何金額、價格、折扣或交期承諾。只有 hasQuote 是 true 時，才寫「報價明細請見信末」，明細由系統附上；hasQuote 是 false 時不要提到信末明細或附上報價。',
   '3. 不要答應退款、賠償或任何沒有依據的承諾；遇到這類要求，寫「我們確認後會盡快回覆您」。',
-  '4. needs_human 裡的每一項，在信中相關位置標上【需人工確認：事項內容】，例如【需人工確認：折扣】；冒號後面一定要寫出具體事項，不可留空或只寫刪節號。needs_human 是空的就不要出現這個標記。',
+  '4. needs_human 裡的每一項，在信中相關位置標上【需人工確認：事項內容】，例如【需人工確認：折扣】；冒號後面一定要寫出具體事項，不可留空或只寫刪節號。needs_human 是空的、也沒有第 6、7 條的情況，就不要出現這個標記。',
   '5. 不要編造公司政策、人名、電話或網址；署名寫「（請填入你的署名）」。',
-  '6. 只輸出信件內文，不要加任何說明或 Markdown 符號。',
+  '6. 不要說任何事情「已經」做了：不要寫已確認、已完成、已審核、已收到款項、已安排、已啟動流程這類話；這些要由我親自確認，請寫成【需人工確認：要確認的事】。',
+  '7. 不要提出或答應具體的日期、時間或可以的時段（例如「可於 11/13 上午安排」）；需要時間的地方寫【需人工確認：可以的時間】。',
+  '8. 只輸出信件內文，不要加任何說明或 Markdown 符號。',
 ].join('\n');
 
 // ============ 選單 ============
@@ -348,7 +353,8 @@ function processSecretaryThread_(thread, labels, prices, result) {
     const reply = flagAmounts_(stripQuoteMentions_(fixEmptyChecks_(draftReply_(triage), triage.needs_human), triage.hasQuote, triage.intent));
     const refund = flagRefundPromise_(reply.text);
     const promise = flagPromises_(refund.text);
-    let body = DRAFT_MARK + '\n\n' + promise.text;
+    const claim = flagClaims_(promise.text);
+    let body = DRAFT_MARK + '\n\n' + claim.text;
     if (quote) body += '\n\n' + quoteText_(quote);
 
     // 先存報價單：存檔失敗不擋草稿，但會寫進紀錄的「需人工原因」
@@ -370,9 +376,10 @@ function processSecretaryThread_(thread, labels, prices, result) {
       reply.flagged ? ['回覆內文出現金額或折扣，寄出前請確認或刪除'] : [],
       refund.flagged ? ['回覆內文提到退款或賠償，AI 不能替你承諾，寄出前請確認或改寫'] : [],
       promise.flagged ? ['回覆內文提到折扣、免費、保證或交期，AI 不能替你承諾，寄出前請確認或改寫'] : [],
+      claim.flagged ? ['回覆內文說某件事已經做了，或提出了具體日期時間，寄出前請確認或改寫'] : [],
       rec.reasons);
     // 客訴、或草稿看起來在替你承諾：草稿照常建立，但狀態是「需人工」並另外貼「需人工」標籤（今日總覽也會算到它）
-    const human = (COMPLAINT_NEEDS_HUMAN && triage.intent === '客訴') || refund.flagged || promise.flagged;
+    const human = (COMPLAINT_NEEDS_HUMAN && triage.intent === '客訴') || refund.flagged || promise.flagged || claim.flagged;
     rec.status = human ? SECRETARY_STATUS.HUMAN : SECRETARY_STATUS.DRAFT;
 
     // 安全：createDraftReply 只建立「草稿」，不會寄出；整份程式沒有任何寄信給客戶的動作
@@ -636,6 +643,18 @@ function flagRefundPromise_(text) {
   const hit = REFUND_PROMISE_RE.test(withoutChecks_(text));
   return {
     text: hit ? '【需人工確認：回覆內文提到退款或賠償，AI 不能替你承諾，寄出前請確認或改寫】\n\n' + text : String(text),
+    flagged: hit,
+  };
+}
+
+/**
+ * 回覆內文說某件事「已經」做了，或提出具體日期時間：在最上面加【需人工確認】提醒、狀態改成「需人工」。
+ * 跟退款、折扣的檢查一樣，只加提醒、不改字：AI 寫的句子由你決定要刪還是改，程式不默默改寫。
+ */
+function flagClaims_(text) {
+  const hit = ACTION_CLAIM_RE.test(withoutChecks_(text));
+  return {
+    text: hit ? '【需人工確認：回覆內文說某件事已經做了（例如已完成審核、已啟動流程），或提出了具體日期時間，AI 不能替你確認或答應，寄出前請確認或改寫】\n\n' + text : String(text),
     flagged: hit,
   };
 }

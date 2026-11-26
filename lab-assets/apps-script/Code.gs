@@ -190,8 +190,9 @@ function setupWizardSteps_() {
   }
 
   let root;
+  const upgrade = {};
   try {
-    root = setupVault_();
+    root = setupVault_(upgrade);
   } catch (err) {
     logError_('一鍵設定：建立知識庫資料夾', err);
     ui.alert('知識庫資料夾建立失敗',
@@ -207,6 +208,9 @@ function setupWizardSteps_() {
   ui.alert('設定完成 ✅',
     aiLine +
     '已在你的雲端硬碟建立資料夾「' + root.getName() + '」（Obsidian 知識庫，Stage 3 會用到；追蹤項目筆記在「' + vaultSymbolFolder_() + '」）。\n\n' +
+    (upgrade.upgraded.length ? '知識庫的起始檔已更新成新版（你沒改過的才換）：' + upgrade.upgraded.join('、') + '。\n\n' : '') +
+    (upgrade.sideBySide.length ? '⚠️ 這些檔案你改過，所以沒有覆蓋；新版另外存成：' + upgrade.sideBySide.join('、') +
+      '。請在 Obsidian 打開兩個檔案比較，把需要的部分複製到你的版本（或改用新版，再把舊檔刪掉、把新版改回原本的名稱）。\n\n' : '') +
     '下一步：選單「② 立即寄一封今日總覽」，到信箱看看。',
     ui.ButtonSet.OK);
 }

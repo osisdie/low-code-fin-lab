@@ -8,7 +8,7 @@
  *   - 建立 FinLab-Vault/日報、秘書、筆記、客戶、標的
  *     （「標的」資料夾名稱可用指令碼屬性 VAULT_SYMBOL_FOLDER 更改；股票、匯率、加密貨幣都放這裡）
  *   - 放入起始檔案（首頁、每日筆記與每週回顧範本、儀表板、Obsidian 每日筆記／範本／關聯圖設定、標的資料夾說明）
- *   已經存在的檔案不會被覆蓋，你自己改過的內容不會不見。
+ *   已經存在的檔案：跟舊版一模一樣（你沒改過）就換成新版；你改過的不覆蓋，新版另存成「名稱（新版）」（見 STARTER_PREVIOUS）。
  *
  * 之後程式還會自動寫這些筆記（都不會蓋掉你自己寫的字）：
  *   - 標的/<代號>.md：追蹤項目第一次出現在日報時建立（ensureSymbolNotes_）
@@ -356,8 +356,84 @@ const STARTER_FILES = [
   },
 ];
 
-/** 建立（或找回）FinLab-Vault，並放入起始檔案；回傳根資料夾 */
-function setupVault_() {
+
+// ============ 舊版起始檔（一鍵設定時安全升級用）============
+// 以前版本程式放進 FinLab-Vault 的起始檔內容的 SHA-256（換行統一成 \n 再算）。
+// 一鍵設定時：檔案內容跟某個舊版一模一樣（你沒改過）→ 換成新版；你改過 → 不覆蓋，新版另存成「<名稱>（新版）」。
+// 從 git 歷史的 Vault.gs（cd6ae33、b71e897、d73f4d6、135a8dc、8466152）與範例 vault 取出；日報總覽.base 與 .obsidian 設定沒改過，不用列。
+// 以後改了 STARTER_FILES，請把「改之前」那一版的雜湊加進來。
+const STARTER_PREVIOUS = {
+  '首頁.md': [
+    '31d9c028eefd9e71636f88d320268e195d88b2f201ef9b90201f2370c4f2afc5', // cd6ae33
+    '5c6c14ede2ab8c0fdbfaa56a8885edfa9c9babcd81836e18b4a2a5aa89f69b71', // 8466152
+  ],
+  '範本/每日筆記.md': [
+    'cd453718e24f20ec14b5b2ce0d726fd93d3cf9f5e3f47eb40a9240705c8fd33b', // 8466152
+  ],
+  '秘書總覽.base': [
+    '0f5c471f31d524537abcc3b04f47d0e5a0ac6cea1a269c5d7d58e0b5a82f9c11', // 8466152
+  ],
+};
+// 標的/說明.md 的舊版內容（{folder} 換成資料夾名稱再比對）
+const SYMBOL_README_PREVIOUS = [
+  "# {folder}\n\n這個資料夾放每個追蹤項目的筆記，股票、匯率、加密貨幣都可以。\n\n日報「原始數據」表格裡的項目名稱是連結，第一次點會在這裡建立空白筆記，你可以寫「我為什麼追蹤它」。\n",
+];
+
+/** 文字的 SHA-256（十六進位；換行先統一成 \n） */
+function sha256Hex_(text) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(text).replace(/\r\n/g, '\n'), Utilities.Charset.UTF_8);
+  return bytes.map(function (b) { return ((b + 256) % 256).toString(16).padStart(2, '0'); }).join('');
+}
+
+/** 「首頁.md」→「首頁（新版）.md」 */
+function newVersionName_(fileName) {
+  const i = fileName.lastIndexOf('.');
+  return i <= 0 ? fileName + '（新版）' : fileName.slice(0, i) + '（新版）' + fileName.slice(i);
+}
+
+/**
+ * 放一個起始檔（安全升級）：
+ *   - 不存在 → 建立
+ *   - 跟新版一樣 → 不動
+ *   - 跟某個舊版一模一樣（你沒改過，isOld 判斷）→ 換成新版，記在 report.upgraded
+ *   - 你改過、而且這個檔案有新版 → 不覆蓋；新版另存成「名稱（新版）」，記在 report.sideBySide
+ *   - 你改過、但這個檔案根本沒出新版 → 不動
+ */
+function placeStarterFile_(folder, path, fileName, content, isOld, hasNewVersion, report) {
+  const it = folder.getFilesByName(fileName);
+  if (!it.hasNext()) {
+    folder.createFile(fileName, content, 'text/plain');
+    return;
+  }
+  const file = it.next();
+  const cur = file.getSize() ? file.getBlob().getDataAsString('UTF-8') : '';
+  if (cur.replace(/\r\n/g, '\n') === content) return;
+  if (isOld(cur)) {
+    file.setContent(content);
+    report.upgraded.push(path);
+    return;
+  }
+  if (!hasNewVersion) return;
+  const sibling = newVersionName_(fileName);
+  const s = folder.getFilesByName(sibling);
+  if (s.hasNext()) {
+    const sf = s.next();
+    if ((sf.getSize() ? sf.getBlob().getDataAsString('UTF-8') : '') !== content) sf.setContent(content);
+  } else {
+    folder.createFile(sibling, content, 'text/plain');
+  }
+  report.sideBySide.push(path.replace(/[^/]+$/, sibling));
+}
+
+/**
+ * 建立（或找回）FinLab-Vault，並放入起始檔案；回傳根資料夾。
+ * 已經有的起始檔：沒改過的舊版會換成新版，你改過的不覆蓋（新版另存成「（新版）」）。
+ * report（可省略）會收到 { upgraded: [換成新版的檔案], sideBySide: [另存的新版檔案] }，給一鍵設定的對話框用。
+ */
+function setupVault_(report) {
+  report = report || {};
+  report.upgraded = report.upgraded || [];
+  report.sideBySide = report.sideBySide || [];
   const root = getVaultRoot_();
   const symbolFolder = vaultSymbolFolder_();
   ['日報', '秘書', '筆記', VAULT_CUSTOMER_FOLDER, symbolFolder].forEach(function (name) { getSubFolder_(root, name); });
@@ -365,13 +441,14 @@ function setupVault_() {
     const parts = f.path.split('/');
     const fileName = parts.pop();
     const folder = parts.reduce(getSubFolder_, root);
-    // 安全：同名檔案已經存在就跳過，不會覆蓋你改過的內容
-    if (!folder.getFilesByName(fileName).hasNext()) folder.createFile(fileName, f.content, 'text/plain');
+    const prev = STARTER_PREVIOUS[f.path] || [];
+    placeStarterFile_(folder, f.path, fileName, f.content,
+      function (cur) { return prev.indexOf(sha256Hex_(cur)) !== -1; }, prev.length > 0, report);
   });
-  const symbolDir = getSubFolder_(root, symbolFolder);
-  if (!symbolDir.getFilesByName('說明.md').hasNext()) {
-    symbolDir.createFile('說明.md', symbolFolderReadme_(symbolFolder), 'text/plain');
-  }
+  const readme = symbolFolderReadme_(symbolFolder);
+  const oldReadmes = SYMBOL_README_PREVIOUS.map(function (t) { return t.split('{folder}').join(symbolFolder); });
+  placeStarterFile_(getSubFolder_(root, symbolFolder), symbolFolder + '/說明.md', '說明.md', readme,
+    function (cur) { return oldReadmes.indexOf(cur.replace(/\r\n/g, '\n')) !== -1; }, true, report);
   return root;
 }
 

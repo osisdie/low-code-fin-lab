@@ -20,7 +20,7 @@
  *   REPORT_TO           收件信箱，不填就寄給自己
  *   REPORT_TEMPLATE     信件版面 compact／full／table（用選單「🎨 選擇信件版面」設定比較方便）
  *   REPORT_HOUR         每天幾點寄出（0～23 的整數，台灣時間，建議 6～11），不設就是 TRIGGER_HOUR（7 點）；改完要再點一次選單 ③ 才會生效
- *   OPENROUTER_MODEL／OPENROUTER_FALLBACK_MODEL  換主要／備用免費模型，不用改程式
+ *   OPENROUTER_MODEL／OPENROUTER_SECONDARY_MODEL／OPENROUTER_FALLBACK_MODEL  換主要／第二／最後備用的免費模型，不用改程式
  *   VAULT_SYMBOL_FOLDER 知識庫裡追蹤項目筆記的資料夾名稱（預設「標的」，見 Vault.gs）
  *   VAULT_ROOT_ID       程式自動寫入的 FinLab-Vault 資料夾 ID，不用自己填
  *
@@ -32,11 +32,16 @@
 
 // ============ 可調整的設定 ============
 const SHEET_NAME = '數據';          // 放 GOOGLEFINANCE 公式的分頁名稱
-// AI 模型：免費模型常常換，名單以 https://openrouter.ai/models?max_price=0 為準（查證日期 2026-11-24）
-// 先用 AI_MODEL_PRIMARY；失敗（錯誤、空白回覆、429 額度用完）就改用 AI_MODEL_FALLBACK 再試一次；兩個都失敗就只寄原始數據
-// 想換模型：直接改這兩行，或在指令碼屬性設 OPENROUTER_MODEL／OPENROUTER_FALLBACK_MODEL 覆寫（不用改程式）
-const AI_MODEL_PRIMARY = 'openrouter/free';            // OpenRouter 自動挑一個當下可用的免費模型
-const AI_MODEL_FALLBACK = 'google/gemma-4-31b-it:free'; // 備用：指定一個中文表現穩定的免費模型
+// AI 模型：免費模型常常換，名單以 https://openrouter.ai/models?max_price=0 為準（查證日期 2026-11-26）
+// 依序試：AI_MODEL_PRIMARY → AI_MODEL_SECONDARY → AI_MODEL_FALLBACK；失敗（錯誤、空白回覆、429 額度用完）才換下一個；都失敗就只寄原始數據
+// 為什麼不再用 openrouter/free 當主要模型：它常挑到「一定要先思考」的推理模型，實測判讀與回覆各要 1～2 分鐘（甚至把額度想光、回覆空白），
+//   一堂課按好幾次 ⑤ 才處理得完。2026-11-26 的免費模型清單（GET https://openrouter.ai/api/v1/models，共 12 個）每個都支援推理，
+//   沒有「完全不推理」的免費模型，所以挑「思考可以關掉」的：Gemma 4 31B（官方說明：configurable thinking/reasoning mode）、
+//   Ling 3.2 Flash（hybrid reasoning），並送 reasoning: { effort: 'none' } 關掉思考。
+// 想換模型：直接改這三行，或在指令碼屬性設 OPENROUTER_MODEL／OPENROUTER_SECONDARY_MODEL／OPENROUTER_FALLBACK_MODEL 覆寫（不用改程式）
+const AI_MODEL_PRIMARY = 'google/gemma-4-31b-it:free';       // 主要：中文穩定、可以關掉思考
+const AI_MODEL_SECONDARY = 'inclusionai/ling-3.2-flash:free'; // 第二：可以關掉思考的 flash 模型
+const AI_MODEL_FALLBACK = 'openrouter/free';                 // 最後備用：OpenRouter 自動挑一個當下可用的免費模型（可能比較慢）
 const AI_KEY_PROP = 'OPENROUTER_API_KEY';              // key 存在指令碼屬性的名稱
 const AI_ENABLED_PROP = 'AI_ENABLED';                   // true／false（也接受 on／off）；沒設時：有 key 就開啟，沒有就關閉
 const AI_OFF_SUMMARY = 'AI 摘要已關閉，以下為原始數據。';
@@ -46,9 +51,10 @@ const OPENROUTER_KEYS_PAGE = 'https://openrouter.ai/settings/keys';
 // 推理模型的「思考」也算在 max_tokens 裡（OpenRouter 文件，查證日期 2026-11-26）：openrouter/free 常會挑到推理模型，
 // 實測判讀上限 800 時，思考把額度用光，回覆是空的（finish_reason: length），所以放寬到 4000 以上。
 const AI_MAX_TOKENS = { summary: 6000, triage: 4000, reply: 4000, check: 2000 };
-// 請推理模型少想一點（OpenRouter 的 reasoning 物件：effort 可為 max／xhigh／high／medium／low／minimal／none，查證日期 2026-11-26）。
-// 不支援推理的模型會忽略；萬一某個模型因為這些欄位回 400，會自動改用不帶這些欄位的請求再試一次（見 callAi_）。
-const AI_REASONING = { effort: 'low' };
+// 關掉思考（OpenRouter 的 reasoning 物件：effort 可為 max／xhigh／high／medium／low／minimal／none，查證日期 2026-11-26）。
+// 「一定要思考」的模型會回 400（實測 baidu/ernie-5.5-flash-preview:free：Reasoning is mandatory…cannot be disabled），
+// 這時會自動改用不帶 max_tokens／reasoning 的請求再試一次（見 callAi_）。
+const AI_REASONING = { effort: 'none' };
 // 請 OpenRouter 優先挑「回應快」的提供者（provider.sort：price／throughput／latency，查證日期 2026-11-26）；不支援的模型會忽略
 const AI_PROVIDER_SORT = 'latency';
 const AI_SUMMARY_DEADLINE_MS = 200000; // 日報摘要：主要模型花超過 200 秒才失敗，就不再試備用模型，直接寄原始數據
@@ -803,7 +809,7 @@ function checkSummaryNumbers_(summary, data) {
 }
 
 /**
- * 呼叫 AI，回傳文字。先用主要模型，失敗就換備用模型再試一次；兩個都失敗時丟出中文說明（呼叫端決定怎麼退場）。
+ * 呼叫 AI，回傳文字。依序試主要、第二、最後備用模型（aiModels_），失敗才換下一個；都失敗時丟出中文說明（呼叫端決定怎麼退場）。
  * opts.json = true 時要求回傳 JSON（秘書判讀信件用）；opts.maxTokens 是回覆長度上限（max_tokens）。
  * 同一個模型回覆空白（finish_reason: length，推理模型把額度用在思考）或回 400 時，先用不帶 max_tokens／reasoning 的請求再試一次，才換備用模型。
  * opts.deadline（時間戳，毫秒）：過了這個時間就不再試下一個模型，直接丟出錯誤（err.outOfTime = true），
@@ -837,9 +843,9 @@ function callAi_(prompt, opts) {
         return callOpenRouterOnce_(key, models[i], prompt, Object.assign({}, opts, { plain: true }));
       }
     } catch (err) {
-      reasons.push((i === 0 ? '主要模型' : '備用模型') + '「' + models[i] + '」：' + err.message);
+      reasons.push(['主要模型', '第二個模型', '備用模型'][Math.min(i, 2)] + '「' + models[i] + '」：' + err.message);
       if (err.stopRetry) break; // 例如 key 無效：換模型也沒用
-      if (i < models.length - 1) console.warn('AI 模型「' + models[i] + '」失敗，改用備用模型：' + err.message);
+      if (i < models.length - 1) console.warn('AI 模型「' + models[i] + '」失敗，改用下一個模型「' + models[i + 1] + '」：' + err.message);
     }
   }
   const err = new Error('AI 暫時無法使用。' + reasons.join('；'));
@@ -847,9 +853,10 @@ function callAi_(prompt, opts) {
   throw err;
 }
 
-/** 要依序嘗試的模型：指令碼屬性可覆寫；重複的只試一次 */
+/** 要依序嘗試的模型：主要 → 第二 → 最後備用；指令碼屬性可覆寫；重複的只試一次 */
 function aiModels_() {
-  const list = [getProp_('OPENROUTER_MODEL') || AI_MODEL_PRIMARY, getProp_('OPENROUTER_FALLBACK_MODEL') || AI_MODEL_FALLBACK];
+  const list = [getProp_('OPENROUTER_MODEL') || AI_MODEL_PRIMARY, getProp_('OPENROUTER_SECONDARY_MODEL') || AI_MODEL_SECONDARY,
+    getProp_('OPENROUTER_FALLBACK_MODEL') || AI_MODEL_FALLBACK];
   return list.filter(function (m, i) { return m && list.indexOf(m) === i; });
 }
 
@@ -960,7 +967,7 @@ function openRouterHttpError_(code, body, model) {
     stopRetry = true;
   } else if (code === 404) {
     msg = '找不到可用的模型「' + model + '」（404）：免費模型可能已下架，或你的 OpenRouter 隱私設定排除了所有提供者。' +
-      '可到程式最上方改 AI_MODEL_PRIMARY／AI_MODEL_FALLBACK，或到 https://openrouter.ai/settings/privacy 檢查免費模型的設定。';
+      '可到程式最上方改 AI_MODEL_PRIMARY／AI_MODEL_SECONDARY／AI_MODEL_FALLBACK，或到 https://openrouter.ai/settings/privacy 檢查免費模型的設定。';
   } else if (code === 403) {
     msg = 'OpenRouter 拒絕這次請求（403）：可能是內容被安全機制擋下，或 key 設了用量上限。';
   } else if (code === 400) {

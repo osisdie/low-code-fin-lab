@@ -42,9 +42,13 @@ const AI_ENABLED_PROP = 'AI_ENABLED';                   // true／false（也接
 const AI_OFF_SUMMARY = 'AI 摘要已關閉，以下為原始數據。';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_KEYS_PAGE = 'https://openrouter.ai/settings/keys';
-// 每次 AI 回覆最多幾個 token（max_tokens）：限制回覆長度，避免卡很久。推理模型的「思考」也算在內，所以留了不少空間
-// （OpenRouter 文件：max_tokens 是回覆的上限，推理模型的思考 token 在多數提供者也算在內；查證日期 2026-11-26）
-const AI_MAX_TOKENS = { summary: 2500, triage: 800, reply: 1200, check: 1000 };
+// 每次 AI 回覆最多幾個 token（max_tokens）：只是防止回覆無限長，要遠大於實際輸出。
+// 推理模型的「思考」也算在 max_tokens 裡（OpenRouter 文件，查證日期 2026-11-26）：openrouter/free 常會挑到推理模型，
+// 實測判讀上限 800 時，思考把額度用光，回覆是空的（finish_reason: length），所以放寬到 4000 以上。
+const AI_MAX_TOKENS = { summary: 6000, triage: 4000, reply: 4000, check: 2000 };
+// 請推理模型少想一點（OpenRouter 的 reasoning 物件：effort 可為 max／xhigh／high／medium／low／minimal／none，查證日期 2026-11-26）。
+// 不支援推理的模型會忽略；萬一某個模型因為這些欄位回 400，會自動改用不帶這些欄位的請求再試一次（見 callAi_）。
+const AI_REASONING = { effort: 'low' };
 // 請 OpenRouter 優先挑「回應快」的提供者（provider.sort：price／throughput／latency，查證日期 2026-11-26）；不支援的模型會忽略
 const AI_PROVIDER_SORT = 'latency';
 const AI_SUMMARY_DEADLINE_MS = 200000; // 日報摘要：主要模型花超過 200 秒才失敗，就不再試備用模型，直接寄原始數據
@@ -801,6 +805,7 @@ function checkSummaryNumbers_(summary, data) {
 /**
  * 呼叫 AI，回傳文字。先用主要模型，失敗就換備用模型再試一次；兩個都失敗時丟出中文說明（呼叫端決定怎麼退場）。
  * opts.json = true 時要求回傳 JSON（秘書判讀信件用）；opts.maxTokens 是回覆長度上限（max_tokens）。
+ * 同一個模型回覆空白（finish_reason: length，推理模型把額度用在思考）或回 400 時，先用不帶 max_tokens／reasoning 的請求再試一次，才換備用模型。
  * opts.deadline（時間戳，毫秒）：過了這個時間就不再試下一個模型，直接丟出錯誤（err.outOfTime = true），
  *   讓呼叫端乾淨退場（日報寄原始數據；秘書把信留到下次）。Apps Script 每次最多 6 分鐘，一次 AI 呼叫偶爾會卡好幾分鐘。
  * 安全：key 只放在 Authorization 標頭，錯誤訊息與紀錄都不會包含 key。
@@ -822,7 +827,15 @@ function callAi_(prompt, opts) {
       break;
     }
     try {
-      return callOpenRouterOnce_(key, models[i], prompt, opts);
+      try {
+        return callOpenRouterOnce_(key, models[i], prompt, opts);
+      } catch (first) {
+        // 推理模型把額度用在思考、回覆空白（length），或模型不接受 max_tokens／reasoning 欄位（400）：
+        // 同一個模型改用「不帶這些欄位」的請求再試一次；時間不夠就不試
+        if (!(first.emptyLength || first.badRequest) || (opts.deadline && Date.now() > opts.deadline)) throw first;
+        console.warn('AI 模型「' + models[i] + '」' + (first.emptyLength ? '回覆空白（思考用光額度）' : '不接受部分欄位') + '，不帶 max_tokens／reasoning 再試一次');
+        return callOpenRouterOnce_(key, models[i], prompt, Object.assign({}, opts, { plain: true }));
+      }
     } catch (err) {
       reasons.push((i === 0 ? '主要模型' : '備用模型') + '「' + models[i] + '」：' + err.message);
       if (err.stopRetry) break; // 例如 key 無效：換模型也沒用
@@ -850,9 +863,13 @@ function callOpenRouterOnce_(key, model, prompt, opts) {
   const payload = {
     model: model,
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: opts.maxTokens || AI_MAX_TOKENS.check,
     provider: { sort: AI_PROVIDER_SORT },
   };
+  // opts.plain：重試時不帶長度上限與推理設定（最單純的請求）
+  if (!opts.plain) {
+    payload.max_tokens = opts.maxTokens || AI_MAX_TOKENS.check;
+    payload.reasoning = AI_REASONING;
+  }
   if (opts.json) payload.response_format = { type: 'json_object' };
 
   let res;
@@ -895,7 +912,11 @@ function callOpenRouterOnce_(key, model, prompt, opts) {
   if (reason === 'error') throw new Error('模型中途出錯，請稍後再試。');
   // 部分推理模型會把思考過程包在 <think>…</think>，只留最後的答案
   const text = String((choice.message && choice.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-  if (!text) throw new Error('回傳空白（結束原因：' + (reason || '未知') + '），請稍後再試。');
+  if (!text) {
+    const empty = new Error('回傳空白（結束原因：' + (reason || '未知') + '），請稍後再試。');
+    empty.emptyLength = reason === 'length'; // 推理模型把 max_tokens 用在思考：呼叫端會不帶上限再試一次
+    throw empty;
+  }
   if (reason === 'length') console.warn('AI 回覆太長被截斷');
   if (j.model) console.log('這次的 AI 回覆來自模型：' + j.model);
   return text;
@@ -950,6 +971,7 @@ function openRouterHttpError_(code, body, model) {
     msg = 'OpenRouter 錯誤（HTTP ' + code + '）。';
   }
   const err = new Error(msg + tail);
+  err.badRequest = code === 400; // 可能是模型不接受 max_tokens／reasoning：呼叫端會用單純的請求再試一次
   err.stopRetry = stopRetry;
   return err;
 }

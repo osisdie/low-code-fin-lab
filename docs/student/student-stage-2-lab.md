@@ -117,7 +117,8 @@ OpenRouter 是一個「AI 模型總機」，一把 key 就能用很多家的免�
 - Google Finance 可能延遲、少數代碼沒資料。
 - 美國國定假日無法自動判斷，要靠「原始數據」自己核對。
 - Yahoo 公開端點非官方，可能變動。
-- OpenRouter 免費模型的名單與額度會變，以官網為準（查證日期 2026-11-24）。預設的 `openrouter/free` 每次可能挑到不同模型，摘要文筆會有差異；數字以「原始數據」為準。
+- OpenRouter 免費模型的名單與額度會變，以官網為準（查證日期 2026-11-26）。預設依序用 `google/gemma-4-31b-it:free`、`inclusionai/ling-3.2-flash:free`，最後才用 `openrouter/free`（它每次可能挑到不同模型、也比較慢）；摘要文筆可能有差異，數字以「原始數據」為準。
+- OpenRouter 塞車（一直 429、摘要寫「AI 暫時無法使用」）時的免費備案：用 Google 帳號到 [aistudio.google.com/apikey](https://aistudio.google.com/apikey) 建一把 Gemini key（`AIza` 開頭），再點 ① 貼上，程式會自動改用 Gemini（免費額度以官網為準，查證日期 2026-11-26；免費方案的輸入可能被 Google 用來改善產品）。想換回來，再點 ① 貼回 OpenRouter key。
 - 「AI 趨勢」目前只依數據評論，沒有新聞；要加新聞需要另外的資料來源。
 - 「日報紀錄」只有數字，沒有你的想法；想寫下觀察、把日報和報價單串在一起，試算表就不夠用了。→ Stage 3 用知識庫解決（選修，裝不了軟體的人用日報紀錄就夠）。
 

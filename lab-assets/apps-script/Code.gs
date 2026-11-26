@@ -11,16 +11,21 @@
  *
  * 安全：
  *   - 寄信用 MailApp，以「你自己的 Google 帳號」寄出，完全不需要密碼。
- *   - OpenRouter API key 放在「專案設定 → 指令碼屬性」(OPENROUTER_API_KEY)，不要寫進這份程式碼。
+ *   - AI 服務的 key（OpenRouter、Gemini 或 OpenAI）放在「專案設定 → 指令碼屬性」(AI_API_KEY；舊版的 OPENROUTER_API_KEY 也認得)，不要寫進這份程式碼。
  *     程式不會把 key 印到紀錄、對話框或信件裡。
  *
  * 指令碼屬性（專案設定 → 指令碼屬性；全部都可以不設，key 由一鍵設定幫你存）：
- *   OPENROUTER_API_KEY  OpenRouter key
+ *   AI_API_KEY          AI 服務的 key，依開頭自動判斷：sk-or- ＝OpenRouter（課堂主線，免費模型）；AIza ＝Gemini（Google AI Studio 免費額度）；
+ *                       其他 sk- 開頭（例如 sk-proj-）＝OpenAI（付費，講師緊急備案）
+ *   OPENROUTER_API_KEY  舊版存 key 的名稱，還是認得（一鍵設定貼新 key 時會改存到 AI_API_KEY）
+ *   AI_PROVIDER         （選填）openrouter／gemini／openai：不想依 key 開頭自動判斷時才設
+ *   AI_BASE_URL         （選填）換 API 網址（例如相容 OpenAI 格式的服務）；可以寫到 /v1 或完整的 /chat/completions
+ *   AI_MODEL／AI_FALLBACK_MODEL  （選填）換主要／最後備用模型（三種服務都適用）
  *   AI_ENABLED          true／false：要不要呼叫 AI；false 時 0 次 AI 呼叫，只寄原始數據
  *   REPORT_TO           收件信箱，不填就寄給自己
  *   REPORT_TEMPLATE     信件版面 compact／full／table（用選單「🎨 選擇信件版面」設定比較方便）
  *   REPORT_HOUR         每天幾點寄出（0～23 的整數，台灣時間，建議 6～11），不設就是 TRIGGER_HOUR（7 點）；改完要再點一次選單 ③ 才會生效
- *   OPENROUTER_MODEL／OPENROUTER_FALLBACK_MODEL  換主要／備用免費模型，不用改程式
+ *   OPENROUTER_MODEL／OPENROUTER_SECONDARY_MODEL／OPENROUTER_FALLBACK_MODEL  換主要／第二／最後備用的免費模型，不用改程式
  *   VAULT_SYMBOL_FOLDER 知識庫裡追蹤項目筆記的資料夾名稱（預設「標的」，見 Vault.gs）
  *   VAULT_ROOT_ID       程式自動寫入的 FinLab-Vault 資料夾 ID，不用自己填
  *
@@ -32,12 +37,32 @@
 
 // ============ 可調整的設定 ============
 const SHEET_NAME = '數據';          // 放 GOOGLEFINANCE 公式的分頁名稱
-// AI 模型：免費模型常常換，名單以 https://openrouter.ai/models?max_price=0 為準（查證日期 2026-11-24）
-// 先用 AI_MODEL_PRIMARY；失敗（錯誤、空白回覆、429 額度用完）就改用 AI_MODEL_FALLBACK 再試一次；兩個都失敗就只寄原始數據
-// 想換模型：直接改這兩行，或在指令碼屬性設 OPENROUTER_MODEL／OPENROUTER_FALLBACK_MODEL 覆寫（不用改程式）
-const AI_MODEL_PRIMARY = 'openrouter/free';            // OpenRouter 自動挑一個當下可用的免費模型
-const AI_MODEL_FALLBACK = 'google/gemma-4-31b-it:free'; // 備用：指定一個中文表現穩定的免費模型
-const AI_KEY_PROP = 'OPENROUTER_API_KEY';              // key 存在指令碼屬性的名稱
+// AI 模型：免費模型常常換，名單以 https://openrouter.ai/models?max_price=0 為準（查證日期 2026-11-26）
+// 依序試：AI_MODEL_PRIMARY → AI_MODEL_SECONDARY → AI_MODEL_FALLBACK；失敗（錯誤、空白回覆、429 額度用完）才換下一個；都失敗就只寄原始數據
+// 為什麼不再用 openrouter/free 當主要模型：它常挑到「一定要先思考」的推理模型，實測判讀與回覆各要 1～2 分鐘（甚至把額度想光、回覆空白），
+//   一堂課按好幾次 ⑤ 才處理得完。2026-11-26 的免費模型清單（GET https://openrouter.ai/api/v1/models，共 12 個）每個都支援推理，
+//   沒有「完全不推理」的免費模型，所以挑「思考可以關掉」的：Gemma 4 31B（官方說明：configurable thinking/reasoning mode）、
+//   Ling 3.2 Flash（hybrid reasoning），並送 reasoning: { effort: 'none' } 關掉思考。
+// 想換模型：直接改這三行，或在指令碼屬性設 OPENROUTER_MODEL／OPENROUTER_SECONDARY_MODEL／OPENROUTER_FALLBACK_MODEL 覆寫（不用改程式）
+const AI_MODEL_PRIMARY = 'google/gemma-4-31b-it:free';       // 主要：中文穩定、可以關掉思考
+const AI_MODEL_SECONDARY = 'inclusionai/ling-3.2-flash:free'; // 第二：可以關掉思考的 flash 模型
+const AI_MODEL_FALLBACK = 'openrouter/free';                 // 最後備用：OpenRouter 自動挑一個當下可用的免費模型（可能比較慢）
+const AI_KEY_PROP = 'AI_API_KEY';                      // key 存在指令碼屬性的名稱（OpenRouter、Gemini、OpenAI 都存這裡）
+const LEGACY_AI_KEY_PROP = 'OPENROUTER_API_KEY';       // 舊版的名稱：還是認得
+// Gemini（學員的免費備案）：Google AI Studio 的 key（AIza 開頭），走 Gemini 的「OpenAI 相容」網址。
+// 2026-11-26 實測：3.5 Flash-Lite 判讀不到 1 秒、回覆約 1.5 秒，JSON 模式可用、回覆是繁體中文；2.5 Flash-Lite 新帳號已不能用（404），
+// 2.5 Flash 官方標示已淘汰。Gemini 3 以後的模型不能完全關掉思考，只能設最低的 minimal（2.x 用 none）。
+// 免費額度以官網為準；免費方案的輸入可能被 Google 用來改善產品，課堂範例信件一律虛構。
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+const GEMINI_KEYS_PAGE = 'https://aistudio.google.com/apikey';
+const GEMINI_MODEL_PRIMARY = 'gemini-3.5-flash-lite';
+const GEMINI_MODEL_FALLBACK = 'gemini-3.5-flash';
+const GEMINI_REASONING_EFFORT = 'minimal';
+// OpenAI（講師緊急備案，付費）：OpenRouter 免費模型塞車時，① 改貼 OpenAI key 就會自動切過去
+const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_KEYS_PAGE = 'https://platform.openai.com/api-keys';
+const OPENAI_MODEL_PRIMARY = 'gpt-4.1-mini';
+const OPENAI_MODEL_FALLBACK = 'gpt-4o-mini';
 const AI_ENABLED_PROP = 'AI_ENABLED';                   // true／false（也接受 on／off）；沒設時：有 key 就開啟，沒有就關閉
 const AI_OFF_SUMMARY = 'AI 摘要已關閉，以下為原始數據。';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -46,9 +71,10 @@ const OPENROUTER_KEYS_PAGE = 'https://openrouter.ai/settings/keys';
 // 推理模型的「思考」也算在 max_tokens 裡（OpenRouter 文件，查證日期 2026-11-26）：openrouter/free 常會挑到推理模型，
 // 實測判讀上限 800 時，思考把額度用光，回覆是空的（finish_reason: length），所以放寬到 4000 以上。
 const AI_MAX_TOKENS = { summary: 6000, triage: 4000, reply: 4000, check: 2000 };
-// 請推理模型少想一點（OpenRouter 的 reasoning 物件：effort 可為 max／xhigh／high／medium／low／minimal／none，查證日期 2026-11-26）。
-// 不支援推理的模型會忽略；萬一某個模型因為這些欄位回 400，會自動改用不帶這些欄位的請求再試一次（見 callAi_）。
-const AI_REASONING = { effort: 'low' };
+// 關掉思考（OpenRouter 的 reasoning 物件：effort 可為 max／xhigh／high／medium／low／minimal／none，查證日期 2026-11-26）。
+// 「一定要思考」的模型會回 400（實測 baidu/ernie-5.5-flash-preview:free：Reasoning is mandatory…cannot be disabled），
+// 這時會自動改用不帶 max_tokens／reasoning 的請求再試一次（見 callAi_）。
+const AI_REASONING = { effort: 'none' };
 // 請 OpenRouter 優先挑「回應快」的提供者（provider.sort：price／throughput／latency，查證日期 2026-11-26）；不支援的模型會忽略
 const AI_PROVIDER_SORT = 'latency';
 const AI_SUMMARY_DEADLINE_MS = 200000; // 日報摘要：主要模型花超過 200 秒才失敗，就不再試備用模型，直接寄原始數據
@@ -151,7 +177,7 @@ function onOpen() {
     .addToUi();
 }
 
-/** 一鍵設定：收 OpenRouter key（可留空以關閉 AI）→ 有 key 且 AI 開啟時才測試 → 建立知識庫資料夾與起始檔案 */
+/** 一鍵設定：收 AI 服務的 key（OpenRouter、Gemini 或 OpenAI，依開頭自動判斷；可留空以關閉 AI）→ 有 key 且 AI 開啟時才測試 → 建立知識庫資料夾與起始檔案 */
 function setupWizard() {
   // 一次確認所有權限：授權畫面上沒勾到的，這裡會再跳出來請你補勾
   ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
@@ -162,34 +188,47 @@ function setupWizard() {
 function setupWizardSteps_() {
   const ui = SpreadsheetApp.getUi();
   const props = PropertiesService.getScriptProperties();
-  const hasKey = !!props.getProperty(AI_KEY_PROP);
-  const res = ui.prompt('一鍵設定：OpenRouter key（可留空）',
-    (hasKey ? '已經設定過 key。要換新的才貼；留空直接按「確定」就沿用舊的。\n\n' : '') +
-    '用 Google 帳號登入 https://openrouter.ai ，到 Keys 頁面（' + OPENROUTER_KEYS_PAGE + '）按「Create」建立 key，複製後貼在下面。\n' +
-    '免費模型不用綁信用卡。key 是 sk-or- 開頭的一長串字。\n' +
-    '還沒有 key、或想先只用原始數據的話，這裡留空按「確定」即可：程式會關閉 AI 摘要，仍會建立知識庫資料夾。\n' +
+  const hasKey = !!aiKey_();
+  const res = ui.prompt('一鍵設定：AI 服務的 key（可留空）',
+    (hasKey ? '已經設定過 key（' + aiProviderInfo_().name + '）。要換新的才貼。\n\n' : '') +
+    '課堂用 OpenRouter（免費）：用 Google 帳號登入 https://openrouter.ai ，到 Keys 頁面（' + OPENROUTER_KEYS_PAGE + '）按「Create」建立 key，複製後貼在下面。\n' +
+    '免費模型不用綁信用卡。OpenRouter 的 key 是 sk-or- 開頭的一長串字。\n' +
+    '也可以貼 Google AI Studio 的 Gemini key（AIza 開頭，免費額度），或講師現場提供的臨時 key；程式會自動認出是哪一家。\n' +
+    (hasKey ? '留空按「確定」會問你要沿用舊 key，還是刪掉它、關閉 AI 摘要。\n'
+      : '還沒有 key、或想先只用原始數據的話，這裡留空按「確定」即可：程式會關閉 AI 摘要，仍會建立知識庫資料夾。\n') +
     'key 只會存進這份檔案的「指令碼屬性」，不會出現在表格裡，分享表格也看不到。',
     ui.ButtonSet.OK_CANCEL);
   if (res.getSelectedButton() !== ui.Button.OK) return;
   const key = res.getResponseText().replace(/\s+/g, '');
-  if (key && !looksLikeOpenRouterKey_(key)) {
+  if (key && !looksLikeAiKey_(key)) {
     // 不要把貼上的內容顯示出來（可能是別的密碼）
-    ui.alert('這看起來不是 OpenRouter key',
-      'OpenRouter key 是「sk-or-」開頭的一長串字。請回到 ' + OPENROUTER_KEYS_PAGE + ' 重新複製，再點一次「① 一鍵設定」。\n' +
+    ui.alert('這看起來不是 AI 服務的 key',
+      'OpenRouter 的 key 是「sk-or-」開頭的一長串字（' + OPENROUTER_KEYS_PAGE + '）；Gemini 的是「AIza」開頭；OpenAI 的是「sk-」開頭。請重新複製，再點一次「① 一鍵設定」。\n' +
       '剛剛貼的內容沒有存起來。', ui.ButtonSet.OK);
     return;
   }
   if (key) {
     props.setProperty(AI_KEY_PROP, key);
+    props.deleteProperty(LEGACY_AI_KEY_PROP); // 舊名稱的 key 換成新的，免得兩把 key 混在一起
+    // 依新 key 自動判斷服務：清掉手動指定的服務與網址（一步就能切換）
+    props.deleteProperty('AI_PROVIDER');
+    props.deleteProperty('AI_BASE_URL');
     props.setProperty(AI_ENABLED_PROP, 'true');
     // 舊版（Gemini）留下的設定用不到了，順手清掉
     props.deleteProperty('GEMINI_API_KEY');
     props.deleteProperty('GEMINI_MODEL');
   } else if (!hasKey) {
     props.setProperty(AI_ENABLED_PROP, 'false');
+  } else {
+    // 留空但原本有 key：問要沿用還是刪掉（例如講師的臨時 key 下課後就失效，學員選「否」就能乾淨關掉）
+    const keep = ui.alert('要沿用現在的 key 嗎？',
+      '這次沒有貼新的 key。目前存的是 ' + aiProviderInfo_().name + ' 的 key。\n\n' +
+      '「是」：沿用這把 key。\n「否」：刪掉這把 key 並關閉 AI 摘要（每日總覽只寄原始數據；之後可以再點①貼上新的 key）。',
+      ui.ButtonSet.YES_NO);
+    if (keep === ui.Button.NO) clearAiKey_(props);
   }
 
-  // AI 關閉（key 留空或 AI_ENABLED=false）就跳過測試：這一步完全不呼叫 OpenRouter
+  // AI 關閉（key 留空或 AI_ENABLED=false）就跳過測試：這一步完全不呼叫 AI 服務
   if (isAiEnabled_()) {
     try {
       callAi_('請只回答：OK', { maxTokens: AI_MAX_TOKENS.check });
@@ -206,15 +245,17 @@ function setupWizardSteps_() {
   } catch (err) {
     logError_('一鍵設定：建立知識庫資料夾', err);
     ui.alert('知識庫資料夾建立失敗',
-      (getProp_(AI_KEY_PROP) ? 'OpenRouter key 已經存好了，但' : '') +
+      (aiKey_() ? 'AI 服務的 key 已經存好了，但' : '') +
       '在雲端硬碟建立「' + VAULT_ROOT_NAME + '」時出錯：\n' + err.message + '\n\n' +
       '最常見的原因是授權時沒有勾選雲端硬碟權限。請再點一次「① 一鍵設定」（key 留空就會沿用），授權畫面全部勾選後按「允許」。',
       ui.ButtonSet.OK);
     return;
   }
+  const info = aiProviderInfo_();
+  const costNote = { openai: '付費，用量記在這把 key 的 OpenAI 帳號；請在 OpenAI 後台設定用量上限', gemini: 'Google AI Studio 免費額度，以官網為準', openrouter: '免費模型' };
   const aiLine = isAiEnabled_()
-    ? 'OpenRouter key 測試成功，AI 摘要已開啟。\n'
-    : '目前 AI 摘要已關閉。每日總覽會寄出原始數據，並註明「' + AI_OFF_SUMMARY + '」。\n若要開啟，再點一次「① 一鍵設定」貼上 OpenRouter key，或把指令碼屬性 AI_ENABLED 設為 true。\n';
+    ? 'AI 服務：' + info.name + '（' + costNote[info.id] + '）。key 測試成功，AI 摘要已開啟。\n'
+    : '目前 AI 摘要已關閉。每日總覽會寄出原始數據，並註明「' + AI_OFF_SUMMARY + '」。\n若要開啟，再點一次「① 一鍵設定」貼上 AI 服務的 key（OpenRouter、Gemini 或 OpenAI），或把指令碼屬性 AI_ENABLED 設為 true。\n';
   ui.alert('設定完成 ✅',
     aiLine +
     '已在你的雲端硬碟建立資料夾「' + root.getName() + '」（Obsidian 知識庫，Stage 3 會用到；追蹤項目筆記在「' + vaultSymbolFolder_() + '」）。\n\n' +
@@ -666,11 +707,49 @@ function isNum_(v) {
   return typeof v === 'number' && isFinite(v);
 }
 
-/** AI 開不開：指令碼屬性 AI_ENABLED 為 false／off／0／no 就是關；沒設這個屬性時，有 OpenRouter key 才算開。 */
+/** AI 開不開：指令碼屬性 AI_ENABLED 為 false／off／0／no 就是關；沒設這個屬性時，有 AI 服務的 key 才算開。 */
 function isAiEnabled_() {
   const flag = String(getProp_(AI_ENABLED_PROP) || '').trim().toLowerCase();
   if (flag === 'false' || flag === 'off' || flag === '0' || flag === 'no') return false;
-  return !!getProp_(AI_KEY_PROP);
+  return !!aiKey_();
+}
+
+/** AI 服務的 key：AI_API_KEY，沒有就看舊版的 OPENROUTER_API_KEY */
+function aiKey_() {
+  return getProp_(AI_KEY_PROP) || getProp_(LEGACY_AI_KEY_PROP) || '';
+}
+
+/** 刪掉 key（新舊名稱都刪）、手動指定的服務與網址，並關閉 AI 摘要 */
+function clearAiKey_(props) {
+  [AI_KEY_PROP, LEGACY_AI_KEY_PROP, 'AI_PROVIDER', 'AI_BASE_URL'].forEach(function (name) { props.deleteProperty(name); });
+  props.setProperty(AI_ENABLED_PROP, 'false');
+}
+
+/**
+ * 用哪一個 AI 服務：指令碼屬性 AI_PROVIDER（openrouter／gemini／openai）優先；
+ * 沒設就看 key 開頭：sk-or- ＝ OpenRouter；AIza ＝ Gemini；其他 sk- 開頭（例如 sk-proj-）＝ OpenAI；看不出來就當 OpenRouter。
+ */
+function aiProvider_() {
+  const forced = String(getProp_('AI_PROVIDER') || '').trim().toLowerCase();
+  if (forced === 'openrouter' || forced === 'openai' || forced === 'gemini') return forced;
+  const key = aiKey_();
+  if (/^sk-or-/.test(key)) return 'openrouter';
+  if (/^AIza/.test(key)) return 'gemini';
+  if (/^sk-/.test(key)) return 'openai';
+  return 'openrouter';
+}
+
+/** 目前服務的名稱、網址、建 key 的頁面（AI_BASE_URL 可換網址：寫到 /v1 會自動補上 /chat/completions） */
+function aiProviderInfo_() {
+  const id = aiProvider_();
+  const base = String(getProp_('AI_BASE_URL') || '').trim().replace(/\/+$/, '');
+  const known = {
+    openrouter: { name: 'OpenRouter', url: OPENROUTER_URL, keysPage: OPENROUTER_KEYS_PAGE, prefix: 'sk-or-' },
+    gemini: { name: 'Gemini', url: GEMINI_URL, keysPage: GEMINI_KEYS_PAGE, prefix: 'AIza' },
+    openai: { name: 'OpenAI', url: OPENAI_URL, keysPage: OPENAI_KEYS_PAGE, prefix: 'sk-' },
+  }[id];
+  const url = base ? (/\/chat\/completions$/.test(base) ? base : base + '/chat/completions') : known.url;
+  return { id: id, name: known.name, url: url, keysPage: known.keysPage, prefix: known.prefix };
 }
 
 /**
@@ -700,12 +779,12 @@ function alertAiOffForSecretary_(title) {
     title,
     '秘書功能需要開啟 AI 才能判讀信件、撰寫回覆草稿。\n\n' +
     '目前 AI 摘要已關閉，每日總覽仍會寄出原始數據。\n\n' +
-    '若要使用⑤⑥，請先點「① 一鍵設定」貼上 OpenRouter key，或把指令碼屬性 AI_ENABLED 設為 true。\n' +
+    '若要使用⑤⑥，請先點「① 一鍵設定」貼上 AI 服務的 key（OpenRouter、Gemini 或 OpenAI），或把指令碼屬性 AI_ENABLED 設為 true。\n' +
     '若你改用 ChatGPT 或 Claude 的訂閱在瀏覽器整理信件，請不要使用這兩個選單。',
     SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
-// ============ AI 摘要（OpenRouter）============
+// ============ AI 摘要（OpenRouter、Gemini 或 OpenAI）============
 /** 把日期與今天的數據（JSON）填進 PROMPT_TEMPLATE；AI 看得到的數字只有這份資料 */
 function buildPrompt_(dateStr, data) {
   // 用函式當替換值：資料裡的 $ 符號不會被當成特殊字元
@@ -803,7 +882,7 @@ function checkSummaryNumbers_(summary, data) {
 }
 
 /**
- * 呼叫 AI，回傳文字。先用主要模型，失敗就換備用模型再試一次；兩個都失敗時丟出中文說明（呼叫端決定怎麼退場）。
+ * 呼叫 AI，回傳文字。依序試主要、第二、最後備用模型（aiModels_），失敗才換下一個；都失敗時丟出中文說明（呼叫端決定怎麼退場）。
  * opts.json = true 時要求回傳 JSON（秘書判讀信件用）；opts.maxTokens 是回覆長度上限（max_tokens）。
  * 同一個模型回覆空白（finish_reason: length，推理模型把額度用在思考）或回 400 時，先用不帶 max_tokens／reasoning 的請求再試一次，才換備用模型。
  * opts.deadline（時間戳，毫秒）：過了這個時間就不再試下一個模型，直接丟出錯誤（err.outOfTime = true），
@@ -812,10 +891,10 @@ function checkSummaryNumbers_(summary, data) {
  */
 function callAi_(prompt, opts) {
   opts = opts || {};
-  const key = getProp_(AI_KEY_PROP);
+  const key = aiKey_();
   if (!isAiEnabled_()) {
     if (key) throw new Error('AI 摘要已關閉（指令碼屬性 AI_ENABLED 設為 false）。若要開啟，把它改成 true。');
-    throw new Error('尚未設定 OpenRouter key，請先點選單「① 一鍵設定」。');
+    throw new Error('尚未設定 AI 服務的 key，請先點選單「① 一鍵設定」。');
   }
   const models = aiModels_();
   const reasons = [];
@@ -828,18 +907,18 @@ function callAi_(prompt, opts) {
     }
     try {
       try {
-        return callOpenRouterOnce_(key, models[i], prompt, opts);
+        return callAiOnce_(key, models[i], prompt, opts);
       } catch (first) {
         // 推理模型把額度用在思考、回覆空白（length），或模型不接受 max_tokens／reasoning 欄位（400）：
         // 同一個模型改用「不帶這些欄位」的請求再試一次；時間不夠就不試
         if (!(first.emptyLength || first.badRequest) || (opts.deadline && Date.now() > opts.deadline)) throw first;
         console.warn('AI 模型「' + models[i] + '」' + (first.emptyLength ? '回覆空白（思考用光額度）' : '不接受部分欄位') + '，不帶 max_tokens／reasoning 再試一次');
-        return callOpenRouterOnce_(key, models[i], prompt, Object.assign({}, opts, { plain: true }));
+        return callAiOnce_(key, models[i], prompt, Object.assign({}, opts, { plain: true }));
       }
     } catch (err) {
-      reasons.push((i === 0 ? '主要模型' : '備用模型') + '「' + models[i] + '」：' + err.message);
+      reasons.push(['主要模型', '第二個模型', '備用模型'][Math.min(i, 2)] + '「' + models[i] + '」：' + err.message);
       if (err.stopRetry) break; // 例如 key 無效：換模型也沒用
-      if (i < models.length - 1) console.warn('AI 模型「' + models[i] + '」失敗，改用備用模型：' + err.message);
+      if (i < models.length - 1) console.warn('AI 模型「' + models[i] + '」失敗，改用下一個模型「' + models[i + 1] + '」：' + err.message);
     }
   }
   const err = new Error('AI 暫時無法使用。' + reasons.join('；'));
@@ -847,49 +926,77 @@ function callAi_(prompt, opts) {
   throw err;
 }
 
-/** 要依序嘗試的模型：指令碼屬性可覆寫；重複的只試一次 */
+/**
+ * 要依序嘗試的模型；指令碼屬性可覆寫；重複的只試一次。
+ *   OpenRouter：主要 → 第二 → 最後備用（AI_MODEL／OPENROUTER_MODEL、OPENROUTER_SECONDARY_MODEL、AI_FALLBACK_MODEL／OPENROUTER_FALLBACK_MODEL）
+ *   Gemini：gemini-3.5-flash-lite → gemini-3.5-flash（AI_MODEL、AI_FALLBACK_MODEL）
+ *   OpenAI：gpt-4.1-mini → gpt-4o-mini（AI_MODEL、AI_FALLBACK_MODEL）
+ */
 function aiModels_() {
-  const list = [getProp_('OPENROUTER_MODEL') || AI_MODEL_PRIMARY, getProp_('OPENROUTER_FALLBACK_MODEL') || AI_MODEL_FALLBACK];
+  const provider = aiProvider_();
+  const list = provider === 'openai'
+    ? [getProp_('AI_MODEL') || OPENAI_MODEL_PRIMARY, getProp_('AI_FALLBACK_MODEL') || OPENAI_MODEL_FALLBACK]
+    : provider === 'gemini'
+    ? [getProp_('AI_MODEL') || GEMINI_MODEL_PRIMARY, getProp_('AI_FALLBACK_MODEL') || GEMINI_MODEL_FALLBACK]
+    : [getProp_('AI_MODEL') || getProp_('OPENROUTER_MODEL') || AI_MODEL_PRIMARY, getProp_('OPENROUTER_SECONDARY_MODEL') || AI_MODEL_SECONDARY,
+      getProp_('AI_FALLBACK_MODEL') || getProp_('OPENROUTER_FALLBACK_MODEL') || AI_MODEL_FALLBACK];
   return list.filter(function (m, i) { return m && list.indexOf(m) === i; });
 }
 
-/** OpenRouter key 大致長這樣：sk-or- 開頭、沒有空白（只做寬鬆檢查，真正能不能用由測試呼叫決定） */
-function looksLikeOpenRouterKey_(key) {
-  return /^sk-or-[A-Za-z0-9_-]{10,}$/.test(String(key));
+/** AI 服務的 key 大致長這樣：sk- 開頭（OpenRouter 是 sk-or-，OpenAI 例如 sk-proj-）或 AIza 開頭（Gemini）、沒有空白；只做寬鬆檢查，真正能不能用由測試呼叫決定 */
+function looksLikeAiKey_(key) {
+  return /^(sk-[A-Za-z0-9_-]{10,}|AIza[A-Za-z0-9_-]{20,})$/.test(String(key));
 }
 
-/** 呼叫一次指定模型；任何失敗都丟出學員看得懂的中文錯誤 */
-function callOpenRouterOnce_(key, model, prompt, opts) {
-  const payload = {
-    model: model,
-    messages: [{ role: 'user', content: prompt }],
-    provider: { sort: AI_PROVIDER_SORT },
-  };
-  // opts.plain：重試時不帶長度上限與推理設定（最單純的請求）
-  if (!opts.plain) {
-    payload.max_tokens = opts.maxTokens || AI_MAX_TOKENS.check;
-    payload.reasoning = AI_REASONING;
+/**
+ * 一次請求的內容（依服務不同）：
+ *   OpenRouter：帶 provider.sort、reasoning（OpenRouter 才有的欄位）與 max_tokens
+ *   OpenAI：不能帶 OpenRouter 的欄位（未知參數會回 400）；gpt-5／o 系列用 max_completion_tokens，其他用 max_tokens
+ *   Gemini（OpenAI 相容網址）：max_tokens＋最上層的 reasoning_effort：Gemini 3 以後是 minimal（不能完全關掉思考），2.x 是 none
+ * opts.plain：重試時不帶長度上限與推理設定（最單純的請求）；Gemini 連 JSON 模式也不帶（文件沒寫 json_object，實測可用；萬一回 400 就改靠 parseJson_ 從文字取出）
+ */
+function aiPayload_(provider, model, prompt, opts) {
+  const payload = { model: model, messages: [{ role: 'user', content: prompt }] };
+  const limit = opts.maxTokens || AI_MAX_TOKENS.check;
+  if (provider === 'openai') {
+    if (!opts.plain) payload[/^(gpt-5|o\d)/.test(model) ? 'max_completion_tokens' : 'max_tokens'] = limit;
+  } else if (provider === 'gemini') {
+    if (opts.plain) return payload;
+    payload.max_tokens = limit;
+    payload.reasoning_effort = /^gemini-2\./.test(model) ? 'none' : GEMINI_REASONING_EFFORT;
+  } else {
+    payload.provider = { sort: AI_PROVIDER_SORT };
+    if (!opts.plain) {
+      payload.max_tokens = limit;
+      payload.reasoning = AI_REASONING;
+    }
   }
   if (opts.json) payload.response_format = { type: 'json_object' };
+  return payload;
+}
 
+/** 呼叫一次指定模型（OpenRouter、Gemini 或 OpenAI）；任何失敗都丟出學員看得懂的中文錯誤 */
+function callAiOnce_(key, model, prompt, opts) {
+  const info = aiProviderInfo_();
+  const headers = { Authorization: 'Bearer ' + key };
+  if (info.id === 'openrouter') {
+    // 選填的來源標示；hidden 代表不要出現在 OpenRouter 公開排行榜（Gemini、OpenAI 不用、也不送）
+    headers['HTTP-Referer'] = 'https://github.com/osisdie/low-code-fin-lab';
+    headers['X-OpenRouter-Title'] = 'low-code-fin-lab';
+    headers['X-OpenRouter-App-Visibility'] = 'hidden';
+  }
   let res;
   try {
-    res = UrlFetchApp.fetch(OPENROUTER_URL, {
+    res = UrlFetchApp.fetch(info.url, {
       method: 'post',
       contentType: 'application/json',
-      headers: {
-        Authorization: 'Bearer ' + key,
-        // 選填的來源標示；hidden 代表不要出現在 OpenRouter 公開排行榜
-        'HTTP-Referer': 'https://github.com/osisdie/low-code-fin-lab',
-        'X-OpenRouter-Title': 'low-code-fin-lab',
-        'X-OpenRouter-App-Visibility': 'hidden',
-      },
-      payload: JSON.stringify(payload),
+      headers: headers,
+      payload: JSON.stringify(aiPayload_(info.id, model, prompt, opts)),
       // 出錯時不要直接丟出英文例外，交給下面翻成中文說明
       muteHttpExceptions: true,
     });
   } catch (err) {
-    throw new Error('連不上 OpenRouter（' + err.message + '），請稍後再試。');
+    throw new Error('連不上 ' + info.name + '（' + err.message + '），請稍後再試。');
   }
 
   const code = res.getResponseCode();
@@ -930,12 +1037,15 @@ function isFreeDailyLimit_(body) {
   return /free-models-per-day|free model requests per day/i.test(String(body || ''));
 }
 
-/** 把 OpenRouter 的 HTTP 錯誤翻成學員看得懂的話（回傳 Error；body 只取 OpenRouter 的錯誤說明，不含 key） */
+/** 把 AI 服務（OpenRouter、Gemini 或 OpenAI）的 HTTP 錯誤翻成學員看得懂的話（回傳 Error；body 只取服務的錯誤說明，不含 key） */
 function openRouterHttpError_(code, body, model) {
+  const info = aiProviderInfo_();
+  const openai = info.id === 'openai';
   // 原始訊息只留前 160 個字：看得出原因，對話框又不會太長
   let detail = '';
   try {
-    const e = JSON.parse(body).error;
+    const parsed = JSON.parse(body);
+    const e = (Array.isArray(parsed) ? parsed[0] || {} : parsed).error; // Gemini 有時回 [{ error: … }]
     detail = String((e && e.message) || '').slice(0, 160);
   } catch (err) {
     detail = String(body || '').slice(0, 160);
@@ -943,10 +1053,20 @@ function openRouterHttpError_(code, body, model) {
   const tail = detail ? '（原始訊息：' + detail + '）' : '';
   let msg;
   let stopRetry = false;
-  if (code === 401) {
-    msg = 'OpenRouter key 無效（401）：請確認 key 有完整貼上（sk-or- 開頭、沒有少字），或到 ' + OPENROUTER_KEYS_PAGE +
+  // Gemini 的 key 錯誤回 400（API_KEY_INVALID），不是 401
+  const badKey = code === 401 || (info.id === 'gemini' && code === 400 && /API_KEY_INVALID|API key not valid/i.test(String(body || '')));
+  if (badKey) {
+    msg = info.name + ' key 無效（' + code + '）：請確認 key 有完整貼上（' + info.prefix + ' 開頭、沒有少字），或到 ' + info.keysPage +
       ' 重新建立一把，再點「① 一鍵設定」貼上新的。';
     stopRetry = true;
+  } else if (code === 429 && info.id === 'gemini') {
+    // Gemini 免費額度：每分鐘或每天的請求上限；換備用模型再試，都失敗就交給人處理
+    msg = 'Gemini 免費額度暫時用完（429）：可能是每分鐘或每天的上限，等一下再試，或明天再處理。';
+  } else if (code === 429 && openai) {
+    // OpenAI：每分鐘上限或帳戶額度／用量上限（insufficient_quota）；換備用模型再試，都失敗就交給人處理
+    msg = /insufficient_quota/.test(String(body || ''))
+      ? 'OpenAI 帳戶額度用完或達到用量上限（429）：請到 OpenAI 後台確認付款與用量上限。'
+      : 'OpenAI 暫時太多請求（429）：等一分鐘再試。';
   } else if (code === 429 && isFreeDailyLimit_(body)) {
     // 每天的免費額度是整個帳號共用，換備用模型也一樣會被擋，直接停
     msg = '今天的免費額度用完了（429）。免費模型每天約 50 次（以官網為準），整個帳號共用，' +
@@ -955,28 +1075,30 @@ function openRouterHttpError_(code, body, model) {
   } else if (code === 429) {
     msg = '免費額度暫時用完（429）。免費模型每分鐘約 20 次、每天約 50 次（以官網為準），' +
       '每天台灣時間早上 8 點（UTC 00:00）重置；等一分鐘再試，整天都失敗就明天再試。';
-  } else if (code === 402) {
+  } else if (code === 402 && info.id === 'openrouter') {
     msg = 'OpenRouter 帳戶點數不足（402）：免費模型本來不用點數，請到 openrouter.ai 的 Credits 頁確認餘額不是負數。';
     stopRetry = true;
+  } else if (code === 404 && info.id !== 'openrouter') {
+    msg = '找不到模型「' + model + '」（404）：請確認指令碼屬性 AI_MODEL／AI_FALLBACK_MODEL 的模型名稱。';
   } else if (code === 404) {
     msg = '找不到可用的模型「' + model + '」（404）：免費模型可能已下架，或你的 OpenRouter 隱私設定排除了所有提供者。' +
-      '可到程式最上方改 AI_MODEL_PRIMARY／AI_MODEL_FALLBACK，或到 https://openrouter.ai/settings/privacy 檢查免費模型的設定。';
+      '可到程式最上方改 AI_MODEL_PRIMARY／AI_MODEL_SECONDARY／AI_MODEL_FALLBACK，或到 https://openrouter.ai/settings/privacy 檢查免費模型的設定。';
   } else if (code === 403) {
-    msg = 'OpenRouter 拒絕這次請求（403）：可能是內容被安全機制擋下，或 key 設了用量上限。';
+    msg = info.name + ' 拒絕這次請求（403）：可能是內容被安全機制擋下，或 key 設了用量上限。';
   } else if (code === 400) {
     msg = '請求格式有問題（400），可能是這個模型不支援某個選項。';
   } else if (code >= 500 || code === 408) {
-    msg = 'OpenRouter 或模型暫時忙碌（HTTP ' + code + '），請稍後再試。';
+    msg = info.name + ' 或模型暫時忙碌（HTTP ' + code + '），請稍後再試。';
   } else {
-    msg = 'OpenRouter 錯誤（HTTP ' + code + '）。';
+    msg = info.name + ' 錯誤（HTTP ' + code + '）。';
   }
   const err = new Error(msg + tail);
-  err.badRequest = code === 400; // 可能是模型不接受 max_tokens／reasoning：呼叫端會用單純的請求再試一次
+  err.badRequest = code === 400 && !badKey; // 可能是模型不接受 max_tokens／reasoning：呼叫端會用單純的請求再試一次
   err.stopRetry = stopRetry;
   return err;
 }
 
-/** 單獨測試 OpenRouter key 是否可用（不會印出 key） */
+/** 單獨測試 AI 服務的 key 是否可用（不會印出 key） */
 function testAiKey() {
   Logger.log(callAi_('請只回答：OK', { maxTokens: AI_MAX_TOKENS.check }));
 }

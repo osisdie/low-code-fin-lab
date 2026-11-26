@@ -7,6 +7,7 @@
  *       → 加上秘書待辦（待確認草稿、需人工的信、昨天處理過的信），合併成一封「今日總覽」
  *       → 依你選的版面（Templates.gs）用你自己的 Gmail 寄給自己
  *       → 數字記一列到「日報紀錄」分頁；同一份日報另存成 Markdown 到雲端硬碟「FinLab-Vault/日報」
+ *       → 日報裡第一次出現的追蹤項目，自動在「FinLab-Vault/標的」建一篇筆記（Vault.gs）
  *
  * 安全：
  *   - 寄信用 MailApp，以「你自己的 Google 帳號」寄出，完全不需要密碼。
@@ -339,11 +340,23 @@ function runDailyPipeline_(opts) {
     logError_('日報紀錄', err); // 每日排程沒有對話框，記進「錯誤紀錄」分頁才看得到
   }
   try {
+    // 往前找最近一篇日報，今天的日報連過去；寫完再把那篇的「後一天」換成連到今天
+    ctx.prevDate = findPrevReportDate_(ctx.isoDate);
     writeVaultFile_('日報', ctx.isoDate + ' 財經日報.md', buildReportMarkdown_(ctx.isoDate, ctx.data, ctx.summary, ctx.secretary, ctx));
+    linkPrevReport_(ctx.prevDate, ctx.isoDate);
   } catch (err) {
     res.vaultError = err.message;
     console.warn('日報未存進知識庫：' + err.message);
     logError_('日報存知識庫', err);
+  }
+  if (!res.vaultError) {
+    // 標的筆記：第一次出現的項目自動建立；你自己寫過的內容不會被改。失敗不影響日報
+    try {
+      ensureSymbolNotes_(ctx.data.items, res.logError ? [] : readDailyLogHistory_(SYMBOL_CHART_DAYS));
+    } catch (err) {
+      console.warn('標的筆記沒有建立：' + err.message);
+      logError_('標的筆記', err);
+    }
   }
   return res;
 }
@@ -420,6 +433,26 @@ function appendDailyLog_(ctx) {
   // 「更新時間」存成文字，才會照 yyyy-MM-dd HH:mm:ss 顯示，不會被試算表改成別的日期格式
   sheet.getRange(target, header.indexOf('更新時間') + 1).setNumberFormat('@');
   sheet.getRange(target, 1, 1, values.length).setValues([values]);
+}
+
+/**
+ * 讀「日報紀錄」最近幾列（依日期由舊到新）：[{ date: 'yyyy-MM-dd', values: { USD_TWD: 32.5, USD_TWD_漲跌%: 0.3, … } }]。
+ * 標的筆記的走勢圖用（只畫最近 days 個日曆天，多讀一些列，中間停過幾天也夠）；空白（查無資料）的格子保留成空字串，由畫圖的程式略過。
+ */
+function readDailyLogHistory_(days) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(DAILY_LOG_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+  const header = data[0].map(function (h) { return String(h); });
+  return data.slice(1)
+    .filter(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(String(r[0])); })
+    .map(function (r) {
+      const values = {};
+      header.forEach(function (h, i) { if (i > 0) values[h] = r[i]; });
+      return { date: String(r[0]), values: values };
+    })
+    .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; })
+    .slice(-days * 2);
 }
 
 /** 一天一列：日期、更新時間與方式、各項數字與漲跌，以及秘書待辦數量（查無資料留空） */
@@ -1067,7 +1100,9 @@ function noteKey_(name) {
 /**
  * 日報 → Markdown。frontmatter 的數字全部直接取自 data（不經過 AI），
  * 查無資料的欄位留空，不補任何數字。
- * meta（可省略）提供 updatedIso 與 runBy，寫成 updated:（ISO 時間，+08:00）與 trigger:（每日排程／手動寄送／手動更新）。
+ * meta（可省略）提供 updatedIso 與 runBy，寫成 updated:（ISO 時間，+08:00）與 trigger:（每日排程／手動寄送／手動更新），
+ * 以及 prevDate（前一篇日報的日期，導覽列用；沒有就寫「沒有更早的日報」）。
+ * frontmatter 的欄位名稱不要改：日報總覽.base、標的筆記的「近期走勢」、每週回顧都靠它們。
  */
 function buildReportMarkdown_(isoDate, data, summary, secretary, meta) {
   const fm = ['---', '類型: 日報', '日期: ' + isoDate];
@@ -1084,14 +1119,19 @@ function buildReportMarkdown_(isoDate, data, summary, secretary, meta) {
 
   const rows = data.items.map(function (it) {
     // 表格裡的連結別名要寫成 \|，否則會被當成欄位分隔
-    const label = symbolWikiLink_(it);
-    const pct = it.changePct === null ? '' : (it.changePct >= 0 ? '📈 +' : '📉 ') + it.changePct + '%';
-    return '| ' + label + ' | ' + (it.price === null ? '查無資料' : it.price) + ' | ' + pct + ' | ' + it.source + ' |';
+    const label = symbolWikiLink_(it, true);
+    return '| ' + label + ' | ' + (it.price === null ? '查無資料' : it.price) + ' | ' + mdPct_(it.changePct) + ' | ' + it.source + ' |';
   });
 
   return fm.concat([
     '',
     '# ' + isoDate + ' 財經日報',
+    '',
+  ], reportNavMarkdown_(isoDate, meta && meta.prevDate), [
+    '',
+    '## 今日重點',
+    '',
+  ], highlightsMarkdown_(data, secretary), [
     '',
     '## AI 整理的摘要',
     '',
@@ -1101,11 +1141,69 @@ function buildReportMarkdown_(isoDate, data, summary, secretary, meta) {
     '',
     '| 項目 | 數字 | 漲跌 | 來源 |',
     '|---|---|---|---|',
-  ], rows, secretary ? ['', '## 秘書待辦', ''].concat(secretaryMarkdown_(secretary)) : [], [
+  ], rows, secretary ? ['', '## 秘書待辦', ''].concat(secretaryMarkdown_(secretary), secretaryNoteLinks_(secretary)) : [], [
     '',
     '> 本頁由 Apps Script 自動產生；數字來自資料表與公開端點，AI 只負責整理文字。僅供參考，不構成投資建議。',
     '',
   ]).join('\n');
+}
+
+/** 漲跌幅 → 「📈 +1.23%」／「📉 -0.45%」；查無資料回傳空字串 */
+function mdPct_(pct) {
+  return pct === null || pct === undefined ? '' : (pct >= 0 ? '📈 +' : '📉 ') + pct + '%';
+}
+
+/**
+ * 日報最上面的導覽列：前一天（往前 7 天內最近的一篇）｜今天的每日筆記｜後一天。
+ * 「後一天」先寫 NAV_NEXT_PENDING，明天的日報產生時才換成連結（linkPrevReport_），
+ * 這樣不會出現點了會建出空白檔的「還不存在的日報」連結。
+ */
+function reportNavMarkdown_(isoDate, prevDate) {
+  const prev = prevDate ? '[[日報/' + prevDate + ' 財經日報|← 前一天]]' : '← 前一天（沒有更早的日報）';
+  return [
+    '導覽：' + prev + '｜[[筆記/' + isoDate + '|📝 今天的筆記]]｜' + NAV_NEXT_PENDING,
+    '',
+    '> 📝 每日筆記請用左側欄「開啟今天的每日筆記」建立，才會套用範本；建好之後上面的連結就通了。',
+  ];
+}
+
+/**
+ * 「今日重點」：全部由程式依 data 計算，不經過 AI。
+ *   - 變動最大的 3 項：依漲跌幅絕對值排序（topMovers_，查無資料的不算；一樣大時照「數據」分頁的順序）
+ *   - 美股休市時寫「沿用 X 收盤數字」（X 是程式算的 usLastCloseDate）
+ *   - 查無資料幾項、秘書待辦數量
+ */
+function highlightsMarkdown_(data, secretary) {
+  const lines = ['> 由程式依下方「原始數據」計算，不經過 AI。', ''];
+  const movers = topMovers_(data.items, 3);
+  if (movers.length) {
+    lines.push('- 變動最大的 ' + movers.length + ' 項（依漲跌幅大小）：');
+    movers.forEach(function (it, i) {
+      lines.push('  ' + (i + 1) + '. ' + symbolWikiLink_(it, false) + '：' + it.price + '（' + mdPct_(it.changePct) + '）');
+    });
+  } else {
+    lines.push('- 變動最大的項目：今天沒有可以比較的漲跌資料。');
+  }
+  if (!data.usMarketOpen) lines.push('- 🇺🇸 美股休市（沿用 ' + data.usLastCloseDate + ' 收盤數字）');
+  const missing = data.items.filter(function (it) { return it.price === null; }).length;
+  if (missing) lines.push('- 查無資料：' + missing + ' 項（見下方原始數據）');
+  if (secretary) {
+    lines.push('- 秘書：待確認草稿 ' + secretary.drafts.length + ' 封、需人工 ' + secretary.failedCount + ' 封（見下方「秘書待辦」）');
+  }
+  return lines;
+}
+
+/** 日報 .md 專用：過去 24 小時的秘書紀錄筆記與報價單連結（信件版面不用，信裡不顯示 [[連結]]） */
+function secretaryNoteLinks_(sec) {
+  const withNote = sec.recent.filter(function (r) { return r.note; });
+  if (!withNote.length) return ['- 全部還沒處理完的信：[[秘書總覽.base|秘書總覽]]（「待我處理」）'];
+  const lines = ['- 秘書紀錄（點開看摘要與下一步）：'];
+  withNote.forEach(function (r) {
+    lines.push('  - [[秘書/' + r.note + '|' + r.intent + '｜' + r.customer + ']]（' + r.status + '）' +
+      (r.quote ? '｜報價單：[[秘書/' + r.quote + '|草稿]]' : ''));
+  });
+  lines.push('- 全部還沒處理完的信：[[秘書總覽.base|秘書總覽]]（「待我處理」）');
+  return lines;
 }
 
 /** 秘書待辦 → Markdown 清單（日報 .md、「完整」版信件與純文字信共用） */

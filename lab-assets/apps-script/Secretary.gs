@@ -1,14 +1,17 @@
 /**
- * 私人商務秘書 — 讀「AI秘書」標籤的信 → 判讀 → 建立 Gmail 回覆草稿（不寄出）＋ 報價單草稿存進知識庫
+ * 私人商務秘書 — 讀「AI秘書」標籤的信 → 判讀 → 建立 Gmail 回覆草稿（不寄出）＋ 每封信一篇紀錄存進知識庫
  *
  * 流程：
  *   1. 你在 Gmail 把要處理的信貼上標籤「AI秘書」（手動或用篩選器自動貼）
  *   2. AI（OpenRouter 免費模型）判讀信件：意圖、客戶、品項與數量、需要人工確認的事（prompts/04）
+ *      推銷／廣告與單純的感謝信由程式依關鍵字判斷，不建立草稿（狀態「略過」「不需回覆」）
  *   3. 價格一律由「報價表」分頁計算（AI 不碰數字）
- *   4. AI 寫回覆內文（prompts/05，禁止寫金額與承諾），系統把報價明細附在信末
- *   5. 存成 Gmail「草稿」——不會寄出；有報價就另存一份 Markdown 到 FinLab-Vault/秘書
- *   6. 標籤換成「AI秘書/已處理」（失敗的換成「AI秘書/需人工」），並記一列到「秘書紀錄」分頁
- *   7. 隔天早上的「今日總覽」信會列出還沒確認的草稿（getSecretaryStatus_）
+ *   4. AI 寫回覆內文（prompts/05，禁止寫金額與承諾），系統把報價明細附在信末；內文出現金額或退款承諾會被標成【需人工確認】
+ *   5. 存成 Gmail「草稿」——不會寄出；有報價就另存一份報價單 Markdown 到 FinLab-Vault/秘書
+ *   6. 每封信都寫一篇紀錄：FinLab-Vault/秘書/<日期>-<意圖>-<客戶>.md，並確保有 FinLab-Vault/客戶/<客戶>.md
+ *   7. 標籤換成「AI秘書/已處理」（失敗的換成「AI秘書/需人工」），並記一列到「秘書紀錄」分頁
+ *   8. 每次執行前先更新之前還沒結案的紀錄：草稿還在、已經回覆、或草稿被刪掉（refreshSecretaryStatuses_）
+ *   9. 隔天早上的「今日總覽」信會列出還沒確認的草稿（getSecretaryStatus_）
  *
  * ⚠️ 隱私：信件內容會經過 OpenRouter 送到免費模型的提供者。部分免費模型的提供者可能保留或用輸入資料訓練模型
  *    （依各提供者條款，以官網為準：https://openrouter.ai/docs/guides/privacy/provider-logging），
@@ -35,6 +38,45 @@ const INTENT_KEYWORDS = [
   { intent: '詢價', re: /詢價|報價|價格|價錢|多少錢|費用多少|估價|quot(e|ation)|pricing|price/i },
   { intent: '改期', re: /改期|改時間|改到|延期|延後|順延|reschedul/i },
 ];
+// 推銷／廣告、單純感謝：只在 AI 判成「其他」（或判讀結果不在清單裡）時才看，對到就不建立草稿
+//   unless：信裡有提問或請求（例如「請問」「麻煩」「？」）就不算單純感謝，照常建立草稿
+const NO_REPLY_RULES = [
+  { status: '略過', re: /廣告|推銷|促銷|限時(優惠|特價|搶購)|取消訂閱|退訂|unsubscribe|電子報|newsletter/i,
+    reason: '系統依關鍵字判斷為推銷或廣告，沒有建立回覆草稿' },
+  { status: '不需回覆', re: /感謝|謝謝|thank/i, unless: /[?？]|請問|能否|可否|是否|麻煩|煩請|請.{0,6}(提供|協助|回覆|確認|報價|安排)/,
+    reason: '系統判斷為感謝或通知信，不需要回覆，沒有建立回覆草稿' },
+];
+// 回覆內文像是在答應退款、賠償（AI 不該替你承諾）：對到就在最上面加【需人工確認】，紀錄狀態改成「需人工」
+const REFUND_PROMISE_RE = /(會|將|可以|同意|立即|馬上|盡快|願意)[^。！？!?\n【]{0,6}(全額)?(退款|退費|退還|賠償|補償)|\b(will|can|shall)\b[^.!?\n]{0,20}\b(refund|reimburse|compensat)/i;
+const FAILED_INTENT = '未判讀'; // 處理失敗、沒有判讀結果的信
+
+// ============ 秘書紀錄的狀態（試算表「秘書紀錄」、知識庫筆記的 狀態、秘書總覽.base 都用這幾個字）============
+// 改名要一起改 Vault.gs 的 秘書總覽.base 與 範本
+const SECRETARY_STATUS = {
+  DRAFT: '待確認草稿',   // AI 已建立回覆草稿，等你確認後自己寄出
+  HUMAN: '需人工',       // 客訴、退款、處理失敗、或草稿內文有疑慮：要你親自判斷
+  REPLIED: '已回覆',     // 草稿已經不在，這串信裡有你寄出的回覆
+  DISCARDED: '已捨棄',   // 草稿已經不在，也沒有你的回覆（多半是你刪掉了草稿）
+  SKIPPED: '略過',       // 推銷或廣告：沒有建立草稿
+  NO_REPLY: '不需回覆',  // 感謝或通知：沒有建立草稿
+};
+const STATUS_HELP = {
+  '待確認草稿': 'AI 已建立回覆草稿，等你確認後自己寄出',
+  '需人工': '這封信要你親自判斷（客訴、退款、處理失敗，或草稿內文有疑慮）',
+  '已回覆': '草稿已經不在，而且這串信裡有你寄出的回覆',
+  '已捨棄': '草稿已經不在，這串信裡也沒有你的回覆（多半是你刪掉了草稿）',
+  '略過': '判斷為推銷或廣告，沒有建立草稿',
+  '不需回覆': '判斷為感謝或通知，不需要回覆，沒有建立草稿',
+};
+// 還沒結案的狀態：每次執行會回頭檢查這些紀錄
+const OPEN_STATUSES = [SECRETARY_STATUS.DRAFT, SECRETARY_STATUS.HUMAN];
+const REFRESH_MAX_PER_RUN = 20; // 每次最多回頭檢查幾筆（從最新的往回），控制 Gmail 讀取次數
+const NEXT_STEP_HEADING = '## 下一步（你要做的事）';
+// 「秘書紀錄」分頁的欄位（與知識庫筆記的 frontmatter 對應）；舊表缺的欄位會自動加在最右邊
+const SECRETARY_LOG_COLUMNS = ['時間', '客戶', '主旨', '意圖', '狀態', '草稿', '報價單', '報價合計', '需人工原因', '下一步', '更新時間', 'Gmail 連結', '信件ID', '知識庫筆記'];
+// 舊版「秘書紀錄」的欄位名稱：同一個意思，沿用舊欄位，不重複加
+const SECRETARY_LOG_ALIASES = { '時間': ['處理時間'], 'Gmail 連結': ['信件連結'] };
+
 const SECRETARY_SCOPES = [           // 秘書需要的權限（建立觸發器前先確認）
   'https://www.googleapis.com/auth/spreadsheets.currentonly',
   'https://www.googleapis.com/auth/script.external_request',
@@ -115,11 +157,13 @@ function menuProcessSecretary() {
   runMenu_('秘書處理', function () {
     const r = processSecretaryMail();
     SpreadsheetApp.getUi().alert('秘書處理完成',
-      '已建立 ' + r.drafted + ' 封回覆草稿（在 Gmail「草稿」），' + r.quotes + ' 份報價單草稿（在「' + VAULT_ROOT_NAME + '/秘書」）。\n' +
+      '已建立 ' + r.drafted + ' 封回覆草稿（在 Gmail「草稿」），' + r.quotes + ' 份報價單草稿；每封信的紀錄都在「' + VAULT_ROOT_NAME + '/秘書」與「' + SECRETARY_LOG_SHEET + '」分頁。\n' +
+      (r.noReply ? r.noReply + ' 封判斷為推銷、廣告或感謝信，沒有建立草稿（狀態「略過」或「不需回覆」）。\n' : '') +
       (r.failed ? r.failed + ' 封處理失敗，已貼上「' + SECRETARY_FAIL_LABEL + '」標籤，請人工處理。\n' : '') +
       (r.skipped ? r.skipped + ' 封已經有 AI 草稿，這次略過（不會重複建立）。\n' : '') +
+      (r.refreshed ? '之前的紀錄有 ' + r.refreshed + ' 筆更新了狀態（已回覆或已捨棄）。\n' : '') +
       (r.priceSkipped.length ? '報價表有 ' + r.priceSkipped.length + ' 列單價看不懂、已略過：' + r.priceSkipped.join('、') + '。請把 B 欄改成數字。\n' : '') +
-      (r.drafted + r.failed + r.skipped === 0 ? '\n沒有找到貼著「' + SECRETARY_LABEL + '」標籤的信。' : '\n提醒：草稿不會自動寄出，請逐封檢查【需人工確認】的地方。'),
+      (r.drafted + r.failed + r.skipped + r.noReply === 0 ? '\n沒有找到貼著「' + SECRETARY_LABEL + '」標籤的信。' : '\n提醒：草稿不會自動寄出，請逐封檢查【需人工確認】的地方。'),
       SpreadsheetApp.getUi().ButtonSet.OK);
   });
 }
@@ -146,36 +190,58 @@ function menuDisableSecretary() {
 
 // ============ 主流程（設定觸發器時請選這個）============
 /**
- * 秘書主流程：每次最多處理 MAX_THREADS_PER_RUN 串信；每串信只建立一封回覆「草稿」，不寄出。
- * 回傳 { drafted, quotes, failed, skipped, priceSkipped } 給選單 ⑤ 顯示。每小時的觸發器執行的就是這個函式。
+ * 秘書主流程：先回頭更新之前還沒結案的紀錄，再處理最多 MAX_THREADS_PER_RUN 串新信；
+ * 每串信最多建立一封回覆「草稿」，不寄出。推銷／廣告與單純感謝信不建立草稿。
+ * 回傳 { drafted, quotes, failed, skipped, noReply, refreshed, priceSkipped } 給選單 ⑤ 顯示。每小時的觸發器執行的就是這個函式。
  */
 function processSecretaryMail() {
-  // 安全：AI 關閉就整個略過（排程觸發也一樣）：0 次 AI 呼叫、不讀信、標籤不動
+  // 安全：AI 關閉就整個略過（排程觸發也一樣）：0 次 AI 呼叫、不讀信、標籤不動、不寫紀錄
   if (!isAiEnabled_()) {
     console.warn('AI 已關閉，略過秘書處理。');
-    return { drafted: 0, quotes: 0, failed: 0, skipped: 0, priceSkipped: [] };
+    return { drafted: 0, quotes: 0, failed: 0, skipped: 0, noReply: 0, refreshed: 0, priceSkipped: [] };
   }
   const inbox = getOrCreateLabel_(SECRETARY_LABEL);
   const done = getOrCreateLabel_(SECRETARY_DONE_LABEL);
   const fail = getOrCreateLabel_(SECRETARY_FAIL_LABEL);
   const priceList = readPriceList_();
   const prices = priceList.map;
-  const result = { drafted: 0, quotes: 0, failed: 0, skipped: 0, priceSkipped: priceList.skipped };
+  const result = { drafted: 0, quotes: 0, failed: 0, skipped: 0, noReply: 0, refreshed: 0, priceSkipped: priceList.skipped };
+
+  // 先更新之前的紀錄（草稿還在嗎？回了沒？）；只看還沒結案的，有上限；失敗不影響處理新信
+  try {
+    result.refreshed = refreshSecretaryStatuses_();
+  } catch (err) {
+    logError_('秘書：更新舊紀錄的狀態', err);
+  }
 
   inbox.getThreads(0, MAX_THREADS_PER_RUN).forEach(function (thread) {
+    let msg = null;
     try {
-      // 重跑時不重複建立：這串信已經有 AI 草稿就直接移到「已處理」
+      // 重跑時不重複建立：這串信已經有 AI 草稿就直接移到「已處理」（第一次處理時已經寫過紀錄）
       if (hasAiDraft_(thread)) {
         thread.removeLabel(inbox).addLabel(done);
         result.skipped++;
-        logSecretary_([new Date(), '', '', thread.getFirstMessageSubject(), '', '', '略過：已有 AI 草稿', thread.getPermalink()]);
+        console.log('略過（已有 AI 草稿）：' + thread.getFirstMessageSubject());
         return;
       }
       // 草稿也算在 thread 裡，先排除，才不會拿自己的草稿去判讀
       const msgs = thread.getMessages().filter(function (m) { return !m.isDraft(); });
       if (!msgs.length) throw new Error('這串信裡沒有可以判讀的信');
-      const msg = msgs[msgs.length - 1];
+      msg = msgs[msgs.length - 1];
       const triage = triageEmail_(msg, prices);
+      const rec = newSecretaryRecord_(thread, msg, triage, prices);
+
+      if (triage.noReply) {
+        // 推銷／廣告、單純感謝：不建立草稿，只留紀錄
+        rec.status = triage.noReply.status;
+        rec.reasons.push(triage.noReply.reason);
+        thread.removeLabel(inbox).addLabel(done);
+        addIntentLabel_(thread, triage.intent);
+        result.noReply++;
+        saveSecretaryRecord_(rec);
+        return;
+      }
+
       // 只有詢價才算報價；改期、客訴不附報價明細、不存報價單
       const quote = triage.intent === '詢價' && (triage.items.length || triage.unmatched.length) ? buildQuote_(triage, prices) : null;
       // 詢價但對不到任何品項（例如關鍵字改判、或客戶沒寫具體品項）：沒有明細可附，請人工報價
@@ -183,48 +249,54 @@ function processSecretaryMail() {
       triage.hasQuote = !!quote; // 回覆提示詞依這個決定要不要寫「報價明細請見信末」
 
       const reply = flagAmounts_(stripQuoteMentions_(fixEmptyChecks_(draftReply_(triage), triage.needs_human), triage.hasQuote, triage.intent));
-      let body = DRAFT_MARK + '\n\n' + reply.text;
+      const refund = flagRefundPromise_(reply.text);
+      let body = DRAFT_MARK + '\n\n' + refund.text;
       if (quote) body += '\n\n' + quoteText_(quote);
 
-      // 先存報價單：存檔失敗不擋草稿，但會記在「秘書紀錄」的狀態
-      let status = '草稿已建立';
+      // 先存報價單：存檔失敗不擋草稿，但會寫進紀錄的「需人工原因」
       if (quote) {
+        rec.total = quote.complete ? quote.total : '（未完成）';
         try {
-          const isoDate = Utilities.formatDate(new Date(), REPORT_TIMEZONE, 'yyyy-MM-dd');
-          const who = noteKey_(triage.customer || '未具名客戶') || '未具名客戶';
-          writeVaultFile_('秘書', '報價單草稿-' + who + '-' + isoDate + '.md',
-            buildQuoteMarkdown_(isoDate, triage, quote, msg.getSubject(), thread.getPermalink()));
+          const name = '報價單草稿-' + customerNoteKey_(triage.customer) + '-' + rec.isoDate;
+          writeVaultFile_('秘書', name + '.md', buildQuoteMarkdown_(rec.isoDate, triage, quote, msg.getSubject(), thread.getPermalink()));
+          rec.quoteNote = name;
           result.quotes++;
         } catch (err) {
           logError_('秘書：報價單存進知識庫', err);
-          status = '草稿已建立（報價單未存檔：' + err.message + '）';
+          rec.reasons.push('報價單沒有存進知識庫：' + err.message);
         }
       }
 
       // 安全：createDraftReply 只建立「草稿」，不會寄出；整份程式沒有任何寄信給客戶的動作
       msg.createDraftReply(body);
       result.drafted++;
+      rec.draft = true;
 
       thread.removeLabel(inbox).addLabel(done);
-      if (ADD_INTENT_LABEL && INTENTS.indexOf(triage.intent) !== -1) {
-        thread.addLabel(getOrCreateLabel_(SECRETARY_LABEL + '/' + triage.intent));
-      }
-      // 客訴：草稿照常建立，但另外貼「需人工」，讓今日總覽的「需人工的信」也算到它
-      if (COMPLAINT_NEEDS_HUMAN && triage.intent === '客訴') {
-        thread.addLabel(fail);
-        status += '（客訴，已貼「' + SECRETARY_FAIL_LABEL + '」）';
-      }
-      logSecretary_([new Date(), triage.customer || '未具名客戶', triage.intent || '其他', msg.getSubject(),
-        quote ? (quote.complete ? quote.total : '（未完成）') : '',
-        triage.needs_human.length + (quote && !quote.complete ? 1 : 0) + (reply.flagged ? 1 : 0), status, thread.getPermalink()]);
+      addIntentLabel_(thread, triage.intent);
+      rec.reasons = triage.needs_human.concat(
+        quote && !quote.complete ? ['部分品項缺價格或數量，報價合計還沒完成'] : [],
+        reply.flagged ? ['回覆內文出現金額或折扣，寄出前請確認或刪除'] : [],
+        refund.flagged ? ['回覆內文提到退款或賠償，AI 不能替你承諾，寄出前請確認或改寫'] : [],
+        rec.reasons);
+      // 客訴、或草稿看起來在答應退款：草稿照常建立，但狀態是「需人工」並另外貼「需人工」標籤（今日總覽也會算到它）
+      const human = (COMPLAINT_NEEDS_HUMAN && triage.intent === '客訴') || refund.flagged;
+      rec.status = human ? SECRETARY_STATUS.HUMAN : SECRETARY_STATUS.DRAFT;
+      if (human) thread.addLabel(fail);
+      saveSecretaryRecord_(rec);
     } catch (err) {
       logError_('秘書：' + thread.getFirstMessageSubject(), err);
       thread.removeLabel(inbox).addLabel(fail);
       result.failed++;
-      logSecretary_([new Date(), '', '', thread.getFirstMessageSubject(), '', '', '失敗：' + err.message, thread.getPermalink()]);
+      saveSecretaryRecord_(failedSecretaryRecord_(thread, msg, err));
     }
   });
   return result;
+}
+
+/** 依判讀結果多貼一個標籤，例如「AI秘書/詢價」（ADD_INTENT_LABEL 為 false 就不貼） */
+function addIntentLabel_(thread, intent) {
+  if (ADD_INTENT_LABEL && INTENTS.indexOf(intent) !== -1) thread.addLabel(getOrCreateLabel_(SECRETARY_LABEL + '/' + intent));
 }
 
 /** 這串信裡是否已經有 AI 草稿（開頭標記還在） */
@@ -259,7 +331,9 @@ function triageEmail_(msg, prices) {
 
 /**
  * 判讀結果的保險：
- *   - intent 不是四個選項之一（例如「報價」「inquiry」）或是「其他」時，用 INTENT_KEYWORDS 補判，並寫進 needs_human 請你確認
+ *   - intent 不是四個選項之一（例如「報價」「inquiry」）或是「其他」時：
+ *       先看 NO_REPLY_RULES（推銷／廣告、單純感謝）→ 對到就設 t.noReply = { status, reason }，不建立草稿；
+ *       否則用 INTENT_KEYWORDS 補判，並寫進 needs_human 請你確認
  *   - 不是詢價就清掉品項（才不會替改期、客訴算報價）
  *   - 客訴一定要人工確認
  */
@@ -270,6 +344,14 @@ function normalizeTriage_(t, subject, body) {
   let intent = INTENTS.indexOf(raw) !== -1 ? raw : '';
   if (!intent || intent === '其他') {
     const text = String(subject || '') + '\n' + String(body || '');
+    const quiet = NO_REPLY_RULES.filter(function (k) { return k.re.test(text) && !(k.unless && k.unless.test(text)); })[0];
+    if (quiet) {
+      t.intent = '其他';
+      t.items = [];
+      t.unmatched = [];
+      t.noReply = { status: quiet.status, reason: quiet.reason + (raw && raw !== '其他' ? '（AI 判讀為「' + raw + '」）' : '') + '；如果判斷錯了，請自己回覆' };
+      return t;
+    }
     const hit = INTENT_KEYWORDS.filter(function (k) { return k.re.test(text); })[0];
     if (hit) {
       t.needs_human.push('AI 判讀為「' + (raw || '空白') + '」，系統依關鍵字改判為「' + hit.intent + '」，請確認');
@@ -359,6 +441,15 @@ function flagAmounts_(text) {
   return {
     text: hasAmount ? '【需人工確認：回覆內文出現金額或折扣，報價以信末明細為準，寄出前請確認或刪除】\n\n' + text : text,
     flagged: hasAmount,
+  };
+}
+
+/** 回覆內文像是在答應退款或賠償（AI 不能替你承諾）：在最上面加【需人工確認】提醒，不會默默改字 */
+function flagRefundPromise_(text) {
+  const hit = REFUND_PROMISE_RE.test(String(text));
+  return {
+    text: hit ? '【需人工確認：回覆內文提到退款或賠償，AI 不能替你承諾，寄出前請確認或改寫】\n\n' + text : String(text),
+    flagged: hit,
   };
 }
 
@@ -481,28 +572,363 @@ function buildQuoteMarkdown_(isoDate, triage, q, subject, permalink) {
   ], checks.map(function (c) { return '- [ ] ' + c; }), ['']).join('\n');
 }
 
-// ============ 秘書紀錄與今日總覽 ============
-/** 「秘書紀錄」分頁加一列；寫不進去只記警告，不影響已建立的草稿 */
+// ============ 秘書紀錄（試算表＋知識庫筆記）============
+
+/** 一封信的紀錄（之後寫進「秘書紀錄」分頁與 秘書/<日期>-<意圖>-<客戶>.md）；品項只記名稱、數量、報價表有沒有 */
+function newSecretaryRecord_(thread, msg, triage, prices) {
+  const items = (triage.items || []).map(function (it) {
+    const p = prices[normalizeName_(it.name)];
+    const n = it.qty === null || it.qty === undefined || it.qty === '' ? NaN : Number(it.qty);
+    return { name: p ? p.name : String(it.name), qty: isFinite(n) && n > 0 ? n : null, inList: !!p };
+  }).concat((triage.unmatched || []).map(function (n) { return { name: String(n), qty: null, inList: false }; }));
+  const now = new Date();
+  return {
+    time: now,
+    isoDate: Utilities.formatDate(now, REPORT_TIMEZONE, 'yyyy-MM-dd'),
+    customer: triage.customer || '未具名客戶',
+    subject: msg.getSubject(),
+    intent: triage.intent || '其他',
+    summary: triage.summary || '',
+    deadline: triage.deadline || '',
+    tone: triage.tone || '',
+    items: items,
+    permalink: thread.getPermalink(),
+    threadId: thread.getId(),
+    quoteNote: '',
+    total: '',
+    draft: false,
+    status: '',
+    reasons: [],
+  };
+}
+
+/** 處理失敗的信也留一篇紀錄（狀態「需人工」、沒有草稿）；客戶寫寄件人的顯示名稱，不寫信箱 */
+function failedSecretaryRecord_(thread, msg, err) {
+  let from = '';
+  let subject = '';
+  try {
+    const m = msg || thread.getMessages()[0];
+    from = m.getFrom();
+    subject = m.getSubject();
+  } catch (e) {
+    subject = thread.getFirstMessageSubject();
+  }
+  const now = new Date();
+  return {
+    time: now,
+    isoDate: Utilities.formatDate(now, REPORT_TIMEZONE, 'yyyy-MM-dd'),
+    customer: senderName_(from),
+    subject: subject,
+    intent: FAILED_INTENT,
+    summary: '',
+    deadline: '',
+    tone: '',
+    items: [],
+    permalink: thread.getPermalink(),
+    threadId: thread.getId(),
+    quoteNote: '',
+    total: '',
+    draft: false,
+    status: SECRETARY_STATUS.HUMAN,
+    reasons: ['處理失敗：' + String((err && err.message) || err), '沒有建立草稿，請自己讀信並回覆'],
+  };
+}
+
+/** 「"王經理" <wang@example.com>」→「王經理」；沒有顯示名稱就寫「未具名寄件人」（不把信箱寫進紀錄） */
+function senderName_(from) {
+  const name = String(from || '').replace(/<[^>]*>/g, '').replace(/["']/g, '').trim();
+  return name && name.indexOf('@') === -1 ? name : '未具名寄件人';
+}
+
+/** 狀態對應的「下一步」清單（知識庫筆記用）；意圖、有沒有報價單、有沒有草稿會影響內容 */
+function nextStepLines_(status, intent, hasQuote, hasDraft) {
+  const S = SECRETARY_STATUS;
+  const lines = ['- 目前狀態：**' + status + '**（' + (STATUS_HELP[status] || '你自己設定的狀態') + '）'];
+  if (status === S.DRAFT || (status === S.HUMAN && hasDraft)) {
+    if (status === S.HUMAN) lines.push('- [ ] 先自己讀完原信，了解狀況（這封信要你親自判斷）');
+    if (intent === '客訴') lines.push('- [ ] 退費、賠償、補救方式由你決定；AI 草稿不會替你答應');
+    lines.push('- [ ] 打開 Gmail「草稿」，把每個【需人工確認】處理掉');
+    if (hasQuote) lines.push('- [ ] 核對報價單的品項與數量，確認後把報價單的 `狀態` 改成「已確認」');
+    if (intent === '改期') lines.push('- [ ] 確認新的時間你可以，再寫進草稿');
+    lines.push('- [ ] 改好之後由你自己按「傳送」（程式不會寄信）；寄出後，下次秘書執行會自動改成「已回覆」');
+  } else if (status === S.HUMAN) {
+    lines.push('- [ ] 這封信沒有草稿：請自己讀信，直接在 Gmail 回覆');
+    lines.push('- [ ] 回覆後，下次秘書執行會自動改成「已回覆」');
+  } else if (status === S.REPLIED) {
+    lines.push('- 已經回覆，不用再做什麼。想留紀錄可以寫在下方「我的備註」。');
+  } else if (status === S.DISCARDED) {
+    lines.push('- 草稿被刪掉了，也沒有看到你的回覆。還要回就直接在 Gmail 回覆；不用回就放著。');
+  } else if (status === S.SKIPPED || status === S.NO_REPLY) {
+    lines.push('- 不用處理。如果其實是重要的信，請自己回覆，並把上方 `狀態` 改成「已回覆」。');
+  }
+  return lines;
+}
+
+/** 試算表「下一步」欄用的一行版本 */
+function nextStepShort_(status, intent, hasQuote, hasDraft) {
+  return nextStepLines_(status, intent, hasQuote, hasDraft).slice(1)
+    .map(function (l) { return l.replace(/^- (\[ \] )?/, ''); }).join('；');
+}
+
+/** 知識庫筆記的「下一步」段落（狀態更新時整段換掉） */
+function nextStepSection_(status, intent, hasQuote, hasDraft) {
+  return NEXT_STEP_HEADING + '\n\n' + nextStepLines_(status, intent, hasQuote, hasDraft).join('\n') + '\n\n';
+}
+
+/** 秘書紀錄筆記中程式產生的那一段（只有摘要，不存信件全文；金額只來自報價表） */
+function secretaryNoteBlock_(rec) {
+  const lines = [
+    '<!-- 信件ID: ' + rec.threadId + ' -->',
+    '> AI 秘書整理的紀錄：只有摘要，不存信件全文。回覆草稿一律不會自動寄出。',
+    '',
+    '- 客戶：[[' + VAULT_CUSTOMER_FOLDER + '/' + customerNoteKey_(rec.customer) + '|' + rec.customer + ']]',
+    '- 主旨：' + rec.subject,
+    '- 處理時間：' + Utilities.formatDate(rec.time, REPORT_TIMEZONE, 'yyyy-MM-dd HH:mm'),
+    '- 原信：[在 Gmail 打開](' + rec.permalink + ')',
+    '- 回覆草稿：' + (rec.draft ? '已建立（Gmail「草稿」匣，主旨「Re: ' + rec.subject + '」；寄出或刪掉後就不在草稿匣）' : '沒有建立'),
+    '',
+    '## 來信摘要',
+    '',
+    rec.summary || (rec.intent === FAILED_INTENT ? '（處理失敗，沒有摘要）' : '（AI 沒有提供摘要）'),
+    '',
+    '- 客戶提到的期限：' + (rec.deadline || '未提及'),
+  ];
+  if (rec.tone) lines.push('- 語氣：' + rec.tone);
+  if (rec.intent === '詢價') {
+    lines.push('', '## 判讀出的品項', '');
+    if (rec.items.length) {
+      lines.push('| 品項 | 數量 | 報價表 |', '|---|---|---|');
+      rec.items.forEach(function (it) {
+        lines.push('| ' + it.name + ' | ' + (it.qty === null ? '待確認' : it.qty) + ' | ' + (it.inList ? '有（單價見報價單）' : '查無此品項，需人工報價') + ' |');
+      });
+    } else {
+      lines.push('（信裡沒有對得上報價表的品項，請人工報價）');
+    }
+    if (rec.total !== '') lines.push('', '- 報價合計（系統依報價表計算）：' + (typeof rec.total === 'number' ? money_(rec.total) : rec.total));
+    if (rec.quoteNote) lines.push('- 報價單：[[秘書/' + rec.quoteNote + '|' + rec.quoteNote + ']]');
+  }
+  lines.push('', '## 為什麼需要人工處理', '');
+  if (rec.reasons.length) rec.reasons.forEach(function (r) { lines.push('- ' + r); });
+  else lines.push('- （沒有特別標記；寄出前仍請把草稿讀過一次）');
+  lines.push('');
+  return lines.join('\n') + '\n' + nextStepSection_(rec.status, rec.intent, !!rec.quoteNote, rec.draft);
+}
+
+/** 秘書紀錄筆記的完整內容；tail 是 GEN_END 之後（你自己寫的部分），重寫時原樣保留 */
+function secretaryNoteContent_(rec, tail) {
+  return [
+    '---',
+    '類型: 秘書紀錄',
+    '日期: ' + rec.isoDate,
+    '客戶: ' + yamlStr_(rec.customer),
+    '意圖: ' + rec.intent,
+    '狀態: ' + rec.status,
+    '草稿: ' + (rec.draft ? 'yes' : 'no'),
+    '報價單: ' + (rec.quoteNote ? yamlStr_('[[' + rec.quoteNote + ']]') : ''),
+    '---',
+    '# ' + rec.intent + '｜' + rec.customer,
+    '',
+    GEN_START,
+    secretaryNoteBlock_(rec) + GEN_END,
+  ].join('\n') + (tail === undefined ? '\n\n## 我的備註（自己寫，程式不會改）\n\n- \n' : tail);
+}
+
+/**
+ * 找這封信的紀錄檔名（不含 .md）：<日期>-<意圖>-<客戶>，同名但是別封信就加 -2、-3…；
+ * 同一封信（信件ID 一樣）再處理一次就沿用同一篇，回傳 { name, tail } 讓你寫的備註保留下來。
+ */
+function secretaryNoteTarget_(rec) {
+  const base = rec.isoDate + '-' + rec.intent + '-' + customerNoteKey_(rec.customer);
+  for (let i = 1; i <= 9; i++) {
+    const name = i === 1 ? base : base + '-' + i;
+    const cur = readVaultFile_('秘書', name + '.md');
+    if (!cur) return { name: name };
+    if (cur.content.indexOf('<!-- 信件ID: ' + rec.threadId + ' -->') !== -1) {
+      const parts = splitGenerated_(cur.content);
+      return { name: name, tail: parts ? parts.after : undefined };
+    }
+  }
+  return { name: base + '-' + rec.threadId };
+}
+
+/** 寫紀錄：知識庫（客戶筆記＋紀錄筆記）與「秘書紀錄」分頁；知識庫寫不進去也照樣記試算表 */
+function saveSecretaryRecord_(rec) {
+  let note = '';
+  try {
+    ensureCustomerNote_(rec.customer);
+    const target = secretaryNoteTarget_(rec);
+    writeVaultFile_('秘書', target.name + '.md', secretaryNoteContent_(rec, target.tail));
+    note = target.name;
+  } catch (err) {
+    logError_('秘書：紀錄存進知識庫', err);
+  }
+  logSecretary_({
+    '時間': rec.time,
+    '客戶': rec.customer,
+    '主旨': rec.subject,
+    '意圖': rec.intent,
+    '狀態': rec.status,
+    '草稿': rec.draft ? 'yes' : 'no',
+    '報價單': rec.quoteNote,
+    '報價合計': rec.total,
+    '需人工原因': rec.reasons.join('；'),
+    '下一步': nextStepShort_(rec.status, rec.intent, !!rec.quoteNote, rec.draft),
+    '更新時間': new Date(),
+    'Gmail 連結': rec.permalink,
+    '信件ID': rec.threadId,
+    '知識庫筆記': note,
+  });
+}
+
+/** 在標題列找欄位（含舊名稱，例如「處理時間」＝「時間」）；找不到回傳 -1 */
+function secretaryLogCol_(header, name) {
+  const names = [name].concat(SECRETARY_LOG_ALIASES[name] || []);
+  for (let i = 0; i < names.length; i++) {
+    const idx = header.indexOf(names[i]);
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+/** 取得「秘書紀錄」分頁與標題列；沒有就建立，舊表缺的欄位加在最右邊（舊的列不動） */
+function secretaryLogSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SECRETARY_LOG_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(SECRETARY_LOG_SHEET);
+    sheet.getRange(1, 1, 1, SECRETARY_LOG_COLUMNS.length).setValues([SECRETARY_LOG_COLUMNS]);
+    sheet.setFrozenRows(1);
+  }
+  const header = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0]
+    .map(function (h) { return String(h); });
+  while (header.length && header[header.length - 1] === '') header.pop();
+  SECRETARY_LOG_COLUMNS.forEach(function (col) {
+    if (secretaryLogCol_(header, col) === -1) {
+      header.push(col);
+      sheet.getRange(1, header.length).setValue(col);
+    }
+  });
+  return { sheet: sheet, header: header };
+}
+
+/**
+ * 「秘書紀錄」分頁加一列（依標題列對欄位）；同一封信（信件ID 一樣）再處理一次就覆寫原本那列，不會重複。
+ * 寫不進去只記警告，不影響已建立的草稿。
+ */
 function logSecretary_(row) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName(SECRETARY_LOG_SHEET);
-    if (!sheet) {
-      sheet = ss.insertSheet(SECRETARY_LOG_SHEET);
-      sheet.appendRow(['處理時間', '客戶', '意圖', '主旨', '報價合計', '需人工確認', '狀態', '信件連結']);
-      sheet.setFrozenRows(1);
+    const log = secretaryLogSheet_();
+    const values = log.header.map(function () { return ''; });
+    Object.keys(row).forEach(function (k) {
+      const i = secretaryLogCol_(log.header, k);
+      if (i !== -1) values[i] = row[k];
+    });
+    const idCol = secretaryLogCol_(log.header, '信件ID');
+    let target = -1;
+    if (row['信件ID'] && log.sheet.getLastRow() > 1) {
+      const ids = log.sheet.getRange(2, idCol + 1, log.sheet.getLastRow() - 1, 1).getValues();
+      for (let i = ids.length - 1; i >= 0; i--) {
+        if (String(ids[i][0]) === String(row['信件ID'])) { target = i + 2; break; }
+      }
     }
-    sheet.appendRow(row);
+    if (target === -1) log.sheet.appendRow(values);
+    else log.sheet.getRange(target, 1, 1, values.length).setValues([values]);
   } catch (err) {
     console.warn('未寫入「' + SECRETARY_LOG_SHEET + '」：' + err.message);
   }
 }
 
 /**
+ * 回頭更新還沒結案的紀錄（狀態是「待確認草稿」或「需人工」），從最新的往回最多 REFRESH_MAX_PER_RUN 筆：
+ *   - AI 草稿還在 → 不變
+ *   - 草稿不在了，這串信裡有你寄出的回覆（時間在處理之後）→ 已回覆
+ *   - 草稿不在了，也沒有回覆 → 已捨棄（沒有草稿的「需人工」紀錄則維持不變，直到你回覆）
+ * 變了才寫：試算表的 狀態／下一步／更新時間，以及知識庫筆記的 狀態 與「下一步」段落（你寫的備註不動）。
+ * 你在 Obsidian 已經把筆記改成別的狀態（例如「已回覆」），就以你的為準，試算表跟著改。回傳更新了幾筆。
+ */
+function refreshSecretaryStatuses_() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SECRETARY_LOG_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return 0;
+  const log = secretaryLogSheet_();
+  const col = function (name) { return secretaryLogCol_(log.header, name); };
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, log.header.length).getValues();
+  const me = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  let checked = 0;
+  let changed = 0;
+  for (let i = rows.length - 1; i >= 0 && checked < REFRESH_MAX_PER_RUN; i--) {
+    const r = rows[i];
+    const status = String(r[col('狀態')]);
+    const id = String(r[col('信件ID')] || '');
+    if (OPEN_STATUSES.indexOf(status) === -1 || !id) continue; // 舊格式的列（沒有信件ID）不碰
+    checked++;
+    let thread = null;
+    try {
+      thread = GmailApp.getThreadById(id);
+    } catch (err) {
+      thread = null;
+    }
+    if (!thread) continue;
+    const hasDraft = String(r[col('草稿')]) === 'yes';
+    const t = r[col('時間')];
+    const next = nextSecretaryStatus_(thread, status, hasDraft, t instanceof Date ? t.getTime() : 0, me);
+    if (next === status) continue;
+    const intent = String(r[col('意圖')]);
+    const hasQuote = !!r[col('報價單')];
+    const final = updateSecretaryNoteStatus_(String(r[col('知識庫筆記')] || ''), next, intent, hasQuote, hasDraft);
+    sheet.getRange(i + 2, col('狀態') + 1).setValue(final);
+    sheet.getRange(i + 2, col('下一步') + 1).setValue(nextStepShort_(final, intent, hasQuote, hasDraft));
+    sheet.getRange(i + 2, col('更新時間') + 1).setValue(new Date());
+    changed++;
+  }
+  return changed;
+}
+
+/** 依這串信現在的樣子決定新狀態（見 refreshSecretaryStatuses_ 的說明） */
+function nextSecretaryStatus_(thread, status, hasDraft, since, me) {
+  const msgs = thread.getMessages();
+  const draftLeft = msgs.some(function (m) { return m.isDraft() && m.getPlainBody().indexOf(DRAFT_MARK) !== -1; });
+  if (hasDraft && draftLeft) return status;
+  const replied = !!me && msgs.some(function (m) {
+    return !m.isDraft() && m.getDate().getTime() > since && String(m.getFrom()).toLowerCase().indexOf(me) !== -1;
+  });
+  if (replied) return SECRETARY_STATUS.REPLIED;
+  return hasDraft ? SECRETARY_STATUS.DISCARDED : status;
+}
+
+/**
+ * 更新知識庫筆記的 狀態 與「下一步」段落；回傳最後採用的狀態。
+ * 筆記的 狀態 已經被你改成「待確認草稿」「需人工」以外的值 → 不動筆記，回傳你的狀態（試算表跟著改）。
+ */
+function updateSecretaryNoteStatus_(noteName, next, intent, hasQuote, hasDraft) {
+  if (!noteName) return next;
+  try {
+    const cur = readVaultFile_('秘書', noteName + '.md');
+    if (!cur) return next;
+    const fm = cur.content.match(/^---\n[\s\S]*?\n---/);
+    const m = fm && fm[0].match(/\n狀態:[ \t]*([^\n]*)/);
+    const noteStatus = m ? m[1].trim() : '';
+    if (noteStatus && OPEN_STATUSES.indexOf(noteStatus) === -1) return noteStatus;
+    let text = cur.content.replace(/\n狀態:[^\n]*/, function () { return '\n狀態: ' + next; });
+    const parts = splitGenerated_(text);
+    if (parts) {
+      const k = parts.block.indexOf(NEXT_STEP_HEADING);
+      if (k !== -1) {
+        text = parts.before + GEN_START + '\n' + parts.block.slice(0, k) + nextStepSection_(next, intent, hasQuote, hasDraft) + GEN_END + parts.after;
+      }
+    }
+    cur.file.setContent(text);
+  } catch (err) {
+    logError_('秘書：更新紀錄筆記的狀態', err);
+  }
+  return next;
+}
+
+// ============ 今日總覽 ============
+/**
  * 給今日總覽用：
  *   drafts      還留在 Gmail 草稿匣的 AI 草稿（= 還沒確認寄出）
  *   failedCount 貼著「AI秘書/需人工」的信
- *   recent      過去 24 小時「秘書紀錄」裡處理過的信
+ *   recent      過去 24 小時「秘書紀錄」裡處理過的信（不含推銷「略過」與處理失敗；新舊欄位都讀得懂）
  */
 function getSecretaryStatus_() {
   const drafts = GmailApp.getDrafts()
@@ -521,11 +947,17 @@ function getSecretaryStatus_() {
   const recent = [];
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SECRETARY_LOG_SHEET);
   if (sheet && sheet.getLastRow() > 1) {
+    const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(function (h) { return String(h); });
     const since = Date.now() - 24 * 60 * 60 * 1000;
-    // 只讀前 7 欄（處理時間～狀態）；狀態是「失敗」或「略過」的不算「已處理」
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues().forEach(function (r) {
-      if (r[0] instanceof Date && r[0].getTime() >= since && String(r[6]).indexOf('失敗') !== 0 && String(r[6]).indexOf('略過') !== 0) {
-        recent.push({ customer: r[1], intent: r[2], subject: r[3], total: r[4] });
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, header.length).getValues().forEach(function (r) {
+      const get = function (name) { const i = secretaryLogCol_(header, name); return i === -1 ? '' : r[i]; };
+      const t = get('時間');
+      const st = String(get('狀態'));
+      const intent = String(get('意圖') || '');
+      // 舊版的「失敗：…」「略過：已有 AI 草稿」與新版的「略過」（推銷）、處理失敗（意圖「未判讀」）都不算
+      if (t instanceof Date && t.getTime() >= since && intent && intent !== FAILED_INTENT && st.indexOf('失敗') !== 0 && st.indexOf('略過') !== 0) {
+        recent.push({ customer: get('客戶'), intent: intent, subject: get('主旨'), total: get('報價合計'), status: st,
+          note: String(get('知識庫筆記') || ''), quote: String(get('報價單') || '') });
       }
     });
   }

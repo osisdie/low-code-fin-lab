@@ -3,7 +3,62 @@ filters:
     - file.inFolder("秘書")
 views:
   - type: table
+    name: 待我處理
+    filters:
+      and:
+        - 類型 == "秘書紀錄"
+        - or:
+            - 狀態 == "待確認草稿"
+            - 狀態 == "需人工"
+    order:
+      - file.name
+      - 日期
+      - 客戶
+      - 意圖
+      - 狀態
+      - 草稿
+      - 報價單
+    sort:
+      - property: 日期
+        direction: DESC
+  - type: table
+    name: 依狀態
+    filters:
+      and:
+        - 類型 == "秘書紀錄"
+    groupBy:
+      property: 狀態
+      direction: ASC
+    order:
+      - file.name
+      - 日期
+      - 客戶
+      - 意圖
+      - 草稿
+    sort:
+      - property: 日期
+        direction: DESC
+  - type: table
+    name: 依意圖
+    filters:
+      and:
+        - 類型 == "秘書紀錄"
+    groupBy:
+      property: 意圖
+      direction: ASC
+    order:
+      - file.name
+      - 日期
+      - 客戶
+      - 狀態
+    sort:
+      - property: 日期
+        direction: DESC
+  - type: table
     name: 報價單草稿
+    filters:
+      and:
+        - 類型 == "報價單草稿"
     order:
       - file.name
       - 客戶

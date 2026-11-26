@@ -43,7 +43,6 @@ function compactHtml_(ctx) {
         '<b>' + esc_(shortName_(it.name)) + '</b>　' + fmtNum_(it.price) + '　' + pctHtml_(it.changePct) + '</div>';
     }).join('') +
     (missing ? '<p style="color:' + MUTED_COLOR + ';font-size:13px">另有 ' + missing + ' 項今天查無資料。</p>' : '');
-  if (!ctx.data.usMarketOpen) html += '<p style="font-size:14px">🇺🇸 美股今日休市（沿用前一交易日數字）</p>';
 
   html += h2_('秘書');
   if (!sec) return html + secretaryOff_();
@@ -58,8 +57,8 @@ function compactHtml_(ctx) {
 
 /** 完整：AI 摘要全文＋秘書清單＋原始數據 */
 function fullHtml_(ctx) {
-  let html = h2_('財經摘要') +
-    '<div style="white-space:pre-wrap;font-size:15px;line-height:1.75">' + esc_(ctx.summary) + '</div>';
+  let html = h2_('財經摘要');
+  html += '<div style="white-space:pre-wrap;font-size:15px;line-height:1.75">' + esc_(ctx.summary) + '</div>';
 
   html += h2_('秘書待辦');
   html += ctx.secretary
@@ -80,7 +79,6 @@ function tableHtml_(ctx) {
   let html = h2_('行情') + table_(['項目', '數字', '漲跌'], ctx.data.items.map(function (it) {
     return [esc_(shortName_(it.name)), it.price === null ? '查無資料' : fmtNum_(it.price), pctHtml_(it.changePct)];
   }), [false, true, true]);
-  if (!ctx.data.usMarketOpen) html += '<p style="font-size:13px">美股今日休市（沿用前一交易日數字）</p>';
 
   const sec = ctx.secretary;
   html += h2_('秘書｜待確認草稿 ' + (sec ? sec.drafts.length : 0) + ' 封');
@@ -108,7 +106,8 @@ function tableHtml_(ctx) {
 
 /**
  * 信件外框：標題、日期、版面內容、頁尾。
- * 頁尾的「僅供參考，不構成投資建議」「AI 草稿一律不會自動寄出」寫在這裡，三種版面都會有。
+ * 頁尾的「僅供參考，不構成投資建議」「AI 草稿一律不會自動寄出」寫在這裡，三種版面都會有；
+ * 美股休市那一行也在這裡（日期下面），三種版面都會有。
  */
 function wrapHtml_(ctx, inner) {
   return '<div style="background:#faf7f0;padding:16px 12px;font-family:\'Noto Sans TC\',\'PingFang TC\',\'Microsoft JhengHei\',sans-serif;color:#20211c">' +
@@ -116,6 +115,8 @@ function wrapHtml_(ctx, inner) {
     '<div style="font-size:12px;letter-spacing:.12em;color:' + UP_COLOR + '">MY AI BRIEFING</div>' +
     '<div style="font-size:22px;font-weight:700;margin:2px 0 4px">📰 今日總覽</div>' +
     '<div style="font-size:14px;color:' + MUTED_COLOR + '">' + esc_(ctx.dateStr) + '</div>' +
+    // 美股休市：三種版面都在最上面顯示同一行（AI 關閉時也有）
+    (ctx.data && !ctx.data.usMarketOpen ? usClosedHtml_(ctx.data) : '') +
     inner +
     '<div style="margin-top:22px;padding-top:12px;border-top:1px solid ' + LINE_COLOR + ';font-size:12px;color:' + MUTED_COLOR + ';line-height:1.7">' +
     '數字來自 Google Finance、CoinGecko、Yahoo Finance 與你的報價表；AI 只整理文字。僅供參考，不構成投資建議。<br>' +
@@ -129,6 +130,7 @@ function briefingText_(ctx) {
   return [
     '📰 今日總覽 ' + ctx.dateStr,
     '',
+    ctx.data.usMarketOpen ? null : '🇺🇸 ' + usClosedLine_(ctx.data) + '\n',
     ctx.summary,
     '',
     '──────── 秘書待辦 ────────',
@@ -139,7 +141,7 @@ function briefingText_(ctx) {
     '',
     '僅供參考，不構成投資建議。AI 草稿一律不會自動寄出。',
     ctx.updatedAt ? '資料更新時間：' + ctx.updatedAt + '（台灣時間）' : '',
-  ].join('\n');
+  ].filter(function (line) { return line !== null; }).join('\n');
 }
 
 /** 把秘書待辦的 Markdown 清單行轉成 HTML（縮排＝子項目，- [ ] ＝待辦勾選框） */
@@ -186,7 +188,20 @@ function pctHtml_(pct) {
   return '<span style="color:' + (up ? UP_COLOR : DOWN_COLOR) + ';font-weight:700;white-space:nowrap">' + (up ? '▲ +' : '▼ ') + pct + '%</span>';
 }
 
-/** 依漲跌幅絕對值排序，取前 n 項（查無資料的不列入） */
+/** 美股休市那一行（HTML）：wrapHtml_ 放在日期下面，三種版面都有，AI 關閉時也一樣 */
+function usClosedHtml_(data) {
+  return '<p style="font-size:14px;margin:12px 0 0;padding:8px 10px;background:#faf7f0;border-left:3px solid ' + MUTED_COLOR + '">🇺🇸 ' + esc_(usClosedLine_(data)) + '</p>';
+}
+
+/** 美股休市那一行：日期由程式算（usLastCloseDate），不讓 AI 推算；精簡／完整／表格三種版面、純文字信與日報 .md 共用 */
+function usClosedLine_(data) {
+  return '美股今日休市（沿用 ' + data.usLastCloseDate + ' 收盤數字）';
+}
+
+/**
+ * 依漲跌幅絕對值排序，取前 n 項（查無資料的不列入）。
+ * 一樣大時維持原本的順序（「數據」分頁由上而下；Apps Script V8 的排序是穩定的）。精簡版信件與日報「今日重點」共用。
+ */
 function topMovers_(items, n) {
   return items
     .filter(function (it) { return it.price !== null && it.changePct !== null; })

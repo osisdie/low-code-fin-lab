@@ -42,6 +42,12 @@ const AI_ENABLED_PROP = 'AI_ENABLED';                   // true／false（也接
 const AI_OFF_SUMMARY = 'AI 摘要已關閉，以下為原始數據。';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_KEYS_PAGE = 'https://openrouter.ai/settings/keys';
+// 每次 AI 回覆最多幾個 token（max_tokens）：限制回覆長度，避免卡很久。推理模型的「思考」也算在內，所以留了不少空間
+// （OpenRouter 文件：max_tokens 是回覆的上限，推理模型的思考 token 在多數提供者也算在內；查證日期 2026-11-26）
+const AI_MAX_TOKENS = { summary: 2500, triage: 800, reply: 1200, check: 1000 };
+// 請 OpenRouter 優先挑「回應快」的提供者（provider.sort：price／throughput／latency，查證日期 2026-11-26）；不支援的模型會忽略
+const AI_PROVIDER_SORT = 'latency';
+const AI_SUMMARY_DEADLINE_MS = 200000; // 日報摘要：主要模型花超過 200 秒才失敗，就不再試備用模型，直接寄原始數據
 // 每天幾點寄出的預設值（依 appsscript.json 的時區：Asia/Taipei）；想改時間不用改程式，設指令碼屬性 REPORT_HOUR 再點一次 ③
 const TRIGGER_HOUR = 7;
 const REPORT_HOUR_PROP = 'REPORT_HOUR';
@@ -182,7 +188,7 @@ function setupWizardSteps_() {
   // AI 關閉（key 留空或 AI_ENABLED=false）就跳過測試：這一步完全不呼叫 OpenRouter
   if (isAiEnabled_()) {
     try {
-      callAi_('請只回答：OK');
+      callAi_('請只回答：OK', { maxTokens: AI_MAX_TOKENS.check });
     } catch (err) {
       ui.alert('key 測試失敗', err.message + '\n\n處理好之後，再點一次「① 一鍵設定」。', ui.ButtonSet.OK);
       return;
@@ -671,7 +677,7 @@ function isAiEnabled_() {
 function buildAiSummary_(dateStr, data) {
   if (!isAiEnabled_()) return AI_OFF_SUMMARY;
   try {
-    const summary = ensureFxLines_(callAi_(buildPrompt_(dateStr, data)), data);
+    const summary = ensureFxLines_(callAi_(buildPrompt_(dateStr, data), { maxTokens: AI_MAX_TOKENS.summary, deadline: Date.now() + AI_SUMMARY_DEADLINE_MS }), data);
     const odd = checkSummaryNumbers_(summary, data);
     if (odd.length) {
       return '⚠️ 自動檢查：摘要裡有數字在原始數據找不到（' + odd.slice(0, 5).join('、') + (odd.length > 5 ? '…' : '') +
@@ -794,7 +800,9 @@ function checkSummaryNumbers_(summary, data) {
 
 /**
  * 呼叫 AI，回傳文字。先用主要模型，失敗就換備用模型再試一次；兩個都失敗時丟出中文說明（呼叫端決定怎麼退場）。
- * opts.json = true 時要求回傳 JSON（秘書判讀信件用）。
+ * opts.json = true 時要求回傳 JSON（秘書判讀信件用）；opts.maxTokens 是回覆長度上限（max_tokens）。
+ * opts.deadline（時間戳，毫秒）：過了這個時間就不再試下一個模型，直接丟出錯誤（err.outOfTime = true），
+ *   讓呼叫端乾淨退場（日報寄原始數據；秘書把信留到下次）。Apps Script 每次最多 6 分鐘，一次 AI 呼叫偶爾會卡好幾分鐘。
  * 安全：key 只放在 Authorization 標頭，錯誤訊息與紀錄都不會包含 key。
  */
 function callAi_(prompt, opts) {
@@ -806,7 +814,13 @@ function callAi_(prompt, opts) {
   }
   const models = aiModels_();
   const reasons = [];
+  let outOfTime = false;
   for (let i = 0; i < models.length; i++) {
+    if (opts.deadline && Date.now() > opts.deadline) {
+      reasons.push('時間不夠，' + (i === 0 ? '這次不呼叫 AI' : '沒有改用備用模型'));
+      outOfTime = true;
+      break;
+    }
     try {
       return callOpenRouterOnce_(key, models[i], prompt, opts);
     } catch (err) {
@@ -815,7 +829,9 @@ function callAi_(prompt, opts) {
       if (i < models.length - 1) console.warn('AI 模型「' + models[i] + '」失敗，改用備用模型：' + err.message);
     }
   }
-  throw new Error('AI 暫時無法使用。' + reasons.join('；'));
+  const err = new Error('AI 暫時無法使用。' + reasons.join('；'));
+  err.outOfTime = outOfTime;
+  throw err;
 }
 
 /** 要依序嘗試的模型：指令碼屬性可覆寫；重複的只試一次 */
@@ -831,7 +847,12 @@ function looksLikeOpenRouterKey_(key) {
 
 /** 呼叫一次指定模型；任何失敗都丟出學員看得懂的中文錯誤 */
 function callOpenRouterOnce_(key, model, prompt, opts) {
-  const payload = { model: model, messages: [{ role: 'user', content: prompt }] };
+  const payload = {
+    model: model,
+    messages: [{ role: 'user', content: prompt }],
+    max_tokens: opts.maxTokens || AI_MAX_TOKENS.check,
+    provider: { sort: AI_PROVIDER_SORT },
+  };
   if (opts.json) payload.response_format = { type: 'json_object' };
 
   let res;
@@ -935,7 +956,7 @@ function openRouterHttpError_(code, body, model) {
 
 /** 單獨測試 OpenRouter key 是否可用（不會印出 key） */
 function testAiKey() {
-  Logger.log(callAi_('請只回答：OK'));
+  Logger.log(callAi_('請只回答：OK', { maxTokens: AI_MAX_TOKENS.check }));
 }
 
 // ============ 排程 ============
@@ -1212,7 +1233,7 @@ function secretaryNoteLinks_(sec) {
   if (!withNote.length) return ['- 全部還沒處理完的信：[[秘書總覽.base|秘書總覽]]（「待我處理」）'];
   const lines = ['- 秘書紀錄（點開看摘要與下一步）：'];
   withNote.forEach(function (r) {
-    lines.push('  - [[秘書/' + r.note + '|' + mdCell_(r.intent + '｜' + r.customer) + ']]（' + r.status + '）' +
+    lines.push('  - [[秘書/' + r.note + '|' + mdCell_(r.intent + '｜' + readCustomer_(r.customer)) + ']]（' + r.status + '）' +
       (r.quote ? '｜報價單：[[秘書/' + r.quote + '|草稿]]' : ''));
   });
   lines.push('- 全部還沒處理完的信：[[秘書總覽.base|秘書總覽]]（「待我處理」）');
@@ -1222,17 +1243,17 @@ function secretaryNoteLinks_(sec) {
 /** 秘書待辦 → Markdown 清單（日報 .md、「完整」版信件與純文字信共用） */
 function secretaryMarkdown_(sec) {
   const lines = ['- 待確認草稿：' + sec.drafts.length + ' 封（在 Gmail「草稿」）'];
-  sec.drafts.forEach(function (d) { lines.push('  - [ ] ' + mdInline_(d.subject) + (d.checks ? '（' + d.checks + ' 處需人工確認）' : '')); });
+  sec.drafts.forEach(function (d) { lines.push('  - [ ] ' + mdInline_(redactEmails_(d.subject)) + (d.checks ? '（' + d.checks + ' 處需人工確認）' : '')); });
   lines.push('- 需人工處理的信：' + sec.failedCount + ' 封（Gmail 標籤「AI秘書/需人工」）');
   lines.push('- 過去 24 小時處理：' + sec.recent.length + ' 封');
   sec.recent.forEach(function (r) {
-    lines.push('  - ' + r.intent + '｜' + mdInline_(r.customer) + '｜' + mdInline_(r.subject) + (r.total === '' ? '' : '｜報價合計 ' + r.total));
+    lines.push('  - ' + r.intent + '｜' + mdInline_(readCustomer_(r.customer)) + '｜' + mdInline_(redactEmails_(r.subject)) + (r.total === '' ? '' : '｜報價合計 ' + r.total));
   });
   // 沒有建立草稿的信（推銷「略過」、感謝「不需回覆」）也列出來：程式是依關鍵字判斷的，可能看錯，請掃一眼
   const quiet = sec.quiet || [];
   if (quiet.length) {
     lines.push('- 略過／不需回覆：' + quiet.length + ' 封，請掃一眼（程式依關鍵字判斷，可能看錯）');
-    quiet.forEach(function (r) { lines.push('  - ' + r.status + '｜' + mdInline_(r.customer) + '｜' + mdInline_(r.subject)); });
+    quiet.forEach(function (r) { lines.push('  - ' + r.status + '｜' + mdInline_(readCustomer_(r.customer)) + '｜' + mdInline_(redactEmails_(r.subject))); });
   }
   return lines;
 }

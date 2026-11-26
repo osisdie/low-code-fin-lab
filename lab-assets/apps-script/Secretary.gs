@@ -252,6 +252,12 @@ function processSecretaryMail() {
   const priceList = readPriceList_();
   const result = { drafted: 0, quotes: 0, failed: 0, skipped: 0, noReply: 0, refreshed: 0, recovered: 0, deferred: 0, followups: 0, priceSkipped: priceList.skipped };
 
+  // 舊版留下的客戶欄若有信箱（例如「admin <信箱>」），先整理掉（只改那一格）
+  try {
+    cleanLegacyCustomers_();
+  } catch (err) {
+    logError_('秘書：整理舊紀錄的客戶名稱', err);
+  }
   // 先更新之前的紀錄（草稿還在嗎？回了沒？）；只看還沒結案的，有上限；失敗不影響處理新信
   try {
     const left = SECRETARY_RUN_LIMIT_MS - SECRETARY_RESERVE_MS - (Date.now() - started);
@@ -328,27 +334,37 @@ function processSecretaryThread_(thread, labels, prices, result, started) {
     // 這串信之前處理過：沒有新的來信 → 已結案就略過；客戶在上次處理（或你的回覆）之後又來信 → 追蹤
     const row = findSecretaryRow_(thread.getId());
     let followup = false;
+    // 之前判讀失敗（意圖「未判讀」）的信：重新貼標籤就是要重試，沒有新的來信也照樣處理
+    const retry = !!row && String(row.get('意圖')) === FAILED_INTENT;
     if (row) {
       // 「新的來信」＝比上次處理過的來信新，也比你最後一次寄出的信新（舊列沒有「最後來信」就用處理時間）
       const lastHandled = Math.max(rowTime_(row.get('最後來信')) || rowTime_(row.get('時間')), latestOwnReply_(msgs, inbound, me));
-      if (msg.getDate().getTime() <= lastHandled) {
+      if (msg.getDate().getTime() <= lastHandled && !retry) {
         // 沒有新的來信：不呼叫 AI、不建草稿、紀錄不動（想讓秘書重寫：先刪掉「秘書紀錄」那一列，再貼標籤）
         thread.removeLabel(labels.inbox).addLabel(labels.done);
         result.skipped++;
         console.log((CLOSED_STATUSES.indexOf(String(row.get('狀態'))) !== -1 ? '已結案，略過：' : '沒有新的來信，略過：') + thread.getFirstMessageSubject());
         return;
       }
-      followup = true;
+      followup = msg.getDate().getTime() > lastHandled;
     }
     const triage = triageEmail_(msg, prices, deadline);
     triage.customer = canonicalCustomer_(triage.customer); // 同一位客戶只用一個名字
     const rec = newSecretaryRecord_(thread, msg, triage, prices);
-    if (followup) {
-      // 追蹤：同一筆紀錄（同一列、同一篇筆記），主旨與第一次處理的時間照舊，另外記一筆「追蹤」
+    if (row) {
+      // 同一筆紀錄（同一列、同一篇筆記）：主旨與第一次處理的時間照舊
       const firstAt = row.get('時間');
       if (firstAt instanceof Date) rec.time = firstAt;
-      rec.subject = String(row.get('主旨') || rec.subject).replace(/^'/, '');
-      rec.intent = String(row.get('意圖') || rec.intent);
+      rec.subject = redactEmails_(String(row.get('主旨') || rec.subject).replace(/^'/, ''));
+      // 意圖：之前判讀失敗（未判讀）就用這次的判讀；否則維持原本的
+      const oldIntent = String(row.get('意圖') || '');
+      if (oldIntent && oldIntent !== FAILED_INTENT) rec.intent = oldIntent;
+      // 客戶：原本是「未署名客戶」才用這次判讀到的；否則維持原本的（不讓同一件事換名字）
+      const oldCustomer = sanitizeCustomer_(String(row.get('客戶') || '').replace(/^'/, ''), myIdentityNames_(msg));
+      if (oldCustomer && oldCustomer !== UNSIGNED_CUSTOMER && oldCustomer !== '未具名寄件人') rec.customer = oldCustomer;
+    }
+    if (followup) {
+      // 追蹤：另外記一筆「追蹤」
       rec.followup = { at: new Date(), subject: redactEmails_(msg.getSubject()), summary: triage.summary || '' };
       rec.reasons.push('客戶在上次處理之後又來信（追蹤），草稿是回覆最新的那封');
       result.followups = (result.followups || 0) + 1;
@@ -893,6 +909,35 @@ function customerNorm_(s) {
     .replace(/(小姐|先生|女士|經理|院長|老師|店長|老闆|總監|主任|mr|ms|mrs)$/, '');
 }
 
+/** 讀出來比對用的「你自己」：帳號信箱、別名與它們 @ 前面那段（小寫） */
+function myReadNames_() {
+  const addrs = myAddresses_();
+  return addrs.concat(addrs.map(function (a) { return a.split('@')[0]; }));
+}
+
+/** 從試算表讀出的客戶名稱：拿掉信箱等，是你自己或空的就寫「未署名客戶」 */
+function readCustomer_(v, me) {
+  return sanitizeCustomer_(String(v || '').replace(/^'/, ''), me) || UNSIGNED_CUSTOMER;
+}
+
+/** 「秘書紀錄」客戶欄裡含 @ 的舊資料，改成整理過的名稱（一格一格寫，只動這一欄）；回傳改了幾格 */
+function cleanLegacyCustomers_() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SECRETARY_LOG_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return 0;
+  const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(function (h) { return String(h); });
+  const c = secretaryLogCol_(header, '客戶');
+  if (c === -1) return 0;
+  const me = myReadNames_();
+  let n = 0;
+  sheet.getRange(2, c + 1, sheet.getLastRow() - 1, 1).getValues().forEach(function (r, i) {
+    const v = String(r[0] || '');
+    if (v.indexOf('@') === -1) return;
+    sheet.getRange(i + 2, c + 1).setValue(sheetSafe_(readCustomer_(v, me)));
+    n++;
+  });
+  return n;
+}
+
 /** 「秘書紀錄」裡出現過的客戶名稱（不含未署名、處理失敗的寄件人） */
 function knownCustomers_() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SECRETARY_LOG_SHEET);
@@ -902,7 +947,7 @@ function knownCustomers_() {
   if (c === -1) return [];
   const seen = {};
   sheet.getRange(2, c + 1, sheet.getLastRow() - 1, 1).getValues().forEach(function (r) {
-    const v = String(r[0] || '').replace(/^'/, '');
+    const v = sanitizeCustomer_(String(r[0] || '').replace(/^'/, ''));
     if (v && v !== UNSIGNED_CUSTOMER && v !== '未具名客戶' && v !== '未具名寄件人') seen[v] = true;
   });
   return Object.keys(seen);
@@ -1599,6 +1644,7 @@ function updateSecretaryNoteStatus_(noteName, next, intent, hasQuote, hasDraft) 
  *   quiet       過去 24 小時判斷為「略過」「不需回覆」、沒有建立草稿的信（請你掃一眼，關鍵字判斷可能看錯）
  */
 function getSecretaryStatus_() {
+  const me = myReadNames_();
   const recent = [];
   const quiet = [];
   const openDraftIds = [];
@@ -1613,7 +1659,8 @@ function getSecretaryStatus_() {
       const intent = String(get('意圖') || '');
       if (OPEN_STATUSES.indexOf(st) !== -1 && get('草稿ID')) openDraftIds.push(String(get('草稿ID')));
       if (!(t instanceof Date) || t.getTime() < since) return;
-      const item = { customer: get('客戶'), intent: intent, subject: get('主旨'), total: get('報價合計'), status: st,
+      // 讀出來也把關（舊版留下的「名字 <信箱>」）：客戶過 sanitizeCustomer_、主旨過 redactEmails_
+      const item = { customer: readCustomer_(get('客戶'), me), intent: intent, subject: redactEmails_(get('主旨')), total: get('報價合計'), status: st,
         note: String(get('知識庫筆記') || ''), quote: String(get('報價單') || '') };
       if (st === SECRETARY_STATUS.SKIPPED || st === SECRETARY_STATUS.NO_REPLY) { quiet.push(item); return; }
       // 舊版的「失敗：…」「略過：已有 AI 草稿」與處理失敗（意圖「未判讀」）都不算
@@ -1631,7 +1678,7 @@ function getSecretaryStatus_() {
     .slice(0, 10)
     .map(function (d) {
       const m = d.getMessage();
-      return { subject: m.getSubject(), checks: (m.getPlainBody().match(/【需人工確認/g) || []).length };
+      return { subject: redactEmails_(m.getSubject()), checks: (m.getPlainBody().match(/【需人工確認/g) || []).length };
     });
 
   const fail = GmailApp.getUserLabelByName(SECRETARY_FAIL_LABEL);

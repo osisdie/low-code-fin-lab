@@ -50,7 +50,7 @@ function compactHtml_(ctx) {
     bigNumber_(sec.drafts.length, '待確認草稿') + bigNumber_(sec.failedCount, '需人工的信') + bigNumber_(sec.recent.length, '昨日處理') +
     '</tr></table>';
   sec.drafts.slice(0, 3).forEach(function (d) {
-    html += '<div style="font-size:15px;padding:4px 0">☐ ' + esc_(d.subject) + '</div>';
+    html += '<div style="font-size:15px;padding:4px 0">☐ ' + esc_(redactEmails_(d.subject)) + '</div>';
   });
   return html + quietHtml_(sec);
 }
@@ -86,14 +86,14 @@ function tableHtml_(ctx) {
     html += secretaryOff_();
   } else {
     html += sec.drafts.length
-      ? table_(['主旨', '需人工確認'], sec.drafts.map(function (d) { return [esc_(d.subject), d.checks + ' 處']; }), [false, true])
+      ? table_(['主旨', '需人工確認'], sec.drafts.map(function (d) { return [esc_(redactEmails_(d.subject)), d.checks + ' 處']; }), [false, true])
       : '<p style="font-size:14px">目前沒有待確認的草稿 👍</p>';
     if (sec.failedCount) html += '<p style="font-size:14px;color:' + UP_COLOR + '">⚠️ 有 ' + sec.failedCount + ' 封信貼著「AI秘書/需人工」，請直接處理。</p>';
     html += quietHtml_(sec);
     html += h2_('過去 24 小時處理的信');
     html += sec.recent.length
       ? table_(['客戶', '意圖', '報價合計'], sec.recent.map(function (r) {
-          return [esc_(r.customer), esc_(r.intent), r.total === '' ? '—' : fmtNum_(r.total)];
+          return [esc_(readCustomer_(r.customer)), esc_(r.intent), r.total === '' ? '—' : fmtNum_(r.total)];
         }), [false, false, true])
       : '<p style="font-size:14px">沒有。</p>';
   }
@@ -182,7 +182,7 @@ function quietHtml_(sec) {
   const quiet = (sec && sec.quiet) || [];
   if (!quiet.length) return '';
   return '<p style="font-size:13px;color:' + MUTED_COLOR + '">略過／不需回覆 ' + quiet.length + ' 封，請掃一眼（程式依關鍵字判斷，可能看錯）：' +
-    quiet.map(function (r) { return esc_(r.status + '｜' + r.subject); }).join('；') + '</p>';
+    quiet.map(function (r) { return esc_(r.status + '｜' + redactEmails_(r.subject)); }).join('；') + '</p>';
 }
 
 /** 還沒用秘書（或讀不到秘書待辦）時顯示的一行 */

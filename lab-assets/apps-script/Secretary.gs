@@ -64,6 +64,8 @@ const REFUND_PROMISE_RE = new RegExp([
 ].join('|'), 'i');
 const PROMISE_RE = /保證|一定會|免費|優惠價|[一二三四五六七八九]折|打[^。！？!?\n【]{0,3}折|[0-9０-９一二三四五六七八九十月日號週天底中初/\-]{1,8}\s*前(交件|交貨|交付|完成|送達|寄出|上線)|\bguarantee|\bfree of charge|\bdiscount/i;
 const FAILED_INTENT = '未判讀'; // 處理失敗、沒有判讀結果的信
+const UNSIGNED_CUSTOMER = '未署名客戶'; // 信裡找不到客戶名稱（或只找到你自己）時用這個
+const CUSTOMER_MAX_CHARS = 40;          // 客戶名稱最多幾個字（太長的截掉，檔名才不會太長）
 
 // ============ 秘書紀錄的狀態（試算表「秘書紀錄」、知識庫筆記的 狀態、秘書總覽.base 都用這幾個字）============
 // 改名要一起改 Vault.gs 的 秘書總覽.base 與 範本
@@ -129,7 +131,7 @@ const TRIAGE_PROMPT = [
   '【請只輸出一個 JSON 物件，不要加任何說明文字或 ``` 符號】',
   '{',
   '  "intent": "詢價" 或 "改期" 或 "客訴" 或 "其他",',
-  '  "customer": "寄件人姓名或公司，信裡沒有就空字串",',
+  '  "customer": "客戶的「公司 聯絡人」，從信件內文的署名或公司名稱找（例如「星河咖啡 陳小姐」）；不要用寄件人欄位或信箱；信裡沒寫就空字串",',
   '  "summary": "一句話摘要客戶需求",',
   '  "items": [{"name": "清單中的品項名稱", "qty": 數量或 null}],',
   '  "unmatched": ["客戶提到但清單沒有的品項"],',
@@ -144,6 +146,7 @@ const TRIAGE_PROMPT = [
   '3. 折扣、交期承諾、退款、賠償、合約或法律相關要求，一律寫進 needs_human。',
   '4. 有任何不確定的地方，也寫進 needs_human。',
   '5. 只有 intent 是「詢價」時才填 items 與 unmatched；改期、客訴、其他一律填空陣列 []。',
+  '6. customer 只看信件內文（通常在最後的署名），寫成「公司 聯絡人」；寄件人欄位可能是你自己或轉寄的人，不要拿來當客戶，也不要輸出任何信箱。',
   '',
   '【信件】',
   '寄件人：{from}',
@@ -284,6 +287,7 @@ function processSecretaryThread_(thread, labels, prices, result) {
     if (!msgs.length) throw new Error('這串信裡沒有可以判讀的信');
     msg = msgs[msgs.length - 1];
     const triage = triageEmail_(msg, prices);
+    triage.customer = canonicalCustomer_(triage.customer); // 同一位客戶只用一個名字
     const rec = newSecretaryRecord_(thread, msg, triage, prices);
 
     if (triage.noReply) {
@@ -314,7 +318,7 @@ function processSecretaryThread_(thread, labels, prices, result) {
       rec.total = quote.complete ? quote.total : '（未完成）';
       try {
         const name = quoteNoteName_('報價單草稿-' + customerNoteKey_(triage.customer) + '-' + rec.isoDate, thread.getPermalink());
-        writeVaultFile_('秘書', name + '.md', buildQuoteMarkdown_(rec.isoDate, triage, quote, msg.getSubject(), thread.getPermalink()));
+        writeVaultFile_('秘書', name + '.md', buildQuoteMarkdown_(rec.isoDate, triage, quote, redactEmails_(msg.getSubject()), thread.getPermalink()));
         rec.quoteNote = name;
         result.quotes++;
       } catch (err) {
@@ -367,8 +371,9 @@ function recoverSecretaryRecord_(thread, prices) {
   try {
     triage = triageEmail_(msg, prices);
   } catch (err) {
-    triage = { intent: '其他', customer: senderName_(msg.getFrom()), summary: '', items: [], unmatched: [], needs_human: [] };
+    triage = { intent: '其他', customer: resolveCustomer_('', msg, msg.getPlainBody()), summary: '', items: [], unmatched: [], needs_human: [] };
   }
+  triage.customer = canonicalCustomer_(triage.customer);
   const rec = newSecretaryRecord_(thread, msg, triage, prices);
   rec.draft = true;
   rec.draftId = threadDraftId_(thread);
@@ -422,7 +427,8 @@ function hasAiDraft_(thread) {
  */
 function triageEmail_(msg, prices) {
   const names = Object.keys(prices).map(function (k) { return '- ' + prices[k].name; }).join('\n') || '（報價表是空的）';
-  const from = msg.getFrom();
+  // 寄件人只給顯示名稱、不給信箱（少送一點個資給免費模型；客戶名稱也要從內文找）
+  const from = senderName_(msg.getFrom());
   const subject = msg.getSubject();
   const body = msg.getPlainBody().slice(0, MAX_BODY_CHARS);
   // 用函式當替換值：信裡的 $ 符號（例如 NT$）不會被當成特殊字元
@@ -435,7 +441,16 @@ function triageEmail_(msg, prices) {
   t.items = Array.isArray(t.items) ? t.items : [];
   t.unmatched = Array.isArray(t.unmatched) ? t.unmatched : [];
   t.needs_human = Array.isArray(t.needs_human) ? t.needs_human : [];
-  return normalizeTriage_(t, subject, body);
+  const out = normalizeTriage_(t, subject, body);
+  // 客戶名稱由程式把關：不放信箱、不把你自己當客戶，找不到就是「未署名客戶」
+  out.customer = resolveCustomer_(out.customer, msg, body);
+  // 會寫進筆記與試算表的文字，信箱一律隱藏
+  out.summary = redactEmails_(out.summary);
+  out.deadline = redactEmails_(out.deadline);
+  out.needs_human = out.needs_human.map(redactEmails_);
+  out.items.forEach(function (it) { it.name = redactEmails_(it.name); });
+  out.unmatched = out.unmatched.map(redactEmails_);
+  return out;
 }
 
 /**
@@ -690,13 +705,13 @@ function buildQuoteMarkdown_(isoDate, triage, q, subject, permalink) {
   return [
     '---',
     '類型: 報價單草稿',
-    '客戶: ' + yamlStr_(triage.customer || '未具名客戶'),
+    '客戶: ' + yamlStr_(triage.customer || UNSIGNED_CUSTOMER),
     '日期: ' + isoDate,
     '合計: ' + (q.complete ? q.total : '"（未完成）"'),
     '狀態: 待確認',
     '---',
     '',
-    '# 報價單草稿：' + (triage.customer || '未具名客戶'),
+    '# 報價單草稿：' + mdInline_(triage.customer || UNSIGNED_CUSTOMER),
     '',
     '> 由 AI 秘書依「報價表」產生，**尚未寄出**。確認後請把上方 `狀態` 改成「已確認」。',
     '',
@@ -712,6 +727,154 @@ function buildQuoteMarkdown_(isoDate, triage, q, subject, permalink) {
     '## 需人工確認',
     '',
   ], checks.map(function (c) { return '- [ ] ' + c; }), ['']).join('\n');
+}
+
+// ============ 客戶名稱（不放信箱、不把你自己當客戶、同一位客戶合併）============
+
+/** 文字裡的信箱換成「（信箱已隱藏）」：摘要、原因、主旨等寫進筆記與試算表前用 */
+function redactEmails_(s) {
+  return String(s === null || s === undefined ? '' : s).replace(/[^\s<>()（）「」"',，;；:：]+@[^\s<>()（）「」"',，;；:：]+/g, '（信箱已隱藏）');
+}
+
+/**
+ * 你自己的名字與信箱（小寫）：帳號信箱、別名、信箱 @ 前面那段，以及「這封信如果是你寄的」寄件人顯示名稱。
+ * 課堂練習信都是寄給自己，寄件人就是你；這些名字一律不能當客戶。
+ */
+function myIdentityNames_(msg) {
+  const addrs = myAddresses_();
+  const out = addrs.slice();
+  addrs.forEach(function (a) { out.push(a.split('@')[0]); });
+  try {
+    const from = String(msg.getFrom() || '');
+    const m = from.match(/<([^>]+)>/);
+    const addr = (m ? m[1] : from).trim().toLowerCase();
+    if (addrs.indexOf(addr) !== -1) out.push(senderName_(from).toLowerCase());
+  } catch (err) {
+    // 讀不到寄件人就算了
+  }
+  return out.filter(function (x) { return x && x !== '未具名寄件人'; });
+}
+
+/**
+ * 整理客戶名稱：拿掉 <…>、含 @ 的字、網址、反斜線與引號，去頭尾空白，最多 CUSTOMER_MAX_CHARS 個字。
+ * 整理完是空的、或是你自己的名字／信箱（myNames），就回傳空字串（由呼叫的地方決定改寫成什麼）。
+ */
+function sanitizeCustomer_(raw, myNames) {
+  let s = String(raw === null || raw === undefined ? '' : raw).normalize('NFKC')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/https?:\/\/\S+|www\.\S+/gi, ' ')
+    .split(/\s+/).filter(function (w) { return w.indexOf('@') === -1; }).join(' ')
+    .replace(/[\\"'“”‘’「」『』]/g, '')
+    .replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (s.length > CUSTOMER_MAX_CHARS) s = s.slice(0, CUSTOMER_MAX_CHARS).trim();
+  if (!s) return '';
+  const low = s.toLowerCase();
+  if ((myNames || []).some(function (n) { return n === low; })) return '';
+  return s;
+}
+
+/**
+ * 備援：AI 沒給客戶（或給的是你自己）時，從內文最後一行的署名找。
+ * 只接受：內文至少兩行、最後一行不超過 30 個字、沒有 @ 或網址、不是句子（不以標點結尾）、不是問候語。
+ */
+function signatureCustomer_(body, myNames) {
+  const lines = String(body || '').replace(/\r\n/g, '\n').split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l; });
+  if (lines.length < 2) return '';
+  const last = lines[lines.length - 1];
+  if (last.length > 30 || /@|https?:|www\./i.test(last) || /[。！？!?.,，、：:;；]$/.test(last)) return '';
+  if (/^(您好|你好|謝謝|感謝|敬祝|順頌|祝好|Best|Regards|Thanks|Thank you|Sincerely|Cheers)/i.test(last)) return '';
+  return sanitizeCustomer_(last, myNames);
+}
+
+/** 這封信的客戶名稱：AI 給的 → 整理；不能用就看署名；都沒有就是「未署名客戶」。絕不包含信箱 */
+function resolveCustomer_(aiCustomer, msg, body) {
+  const me = myIdentityNames_(msg);
+  return sanitizeCustomer_(aiCustomer, me) || signatureCustomer_(body, me) || UNSIGNED_CUSTOMER;
+}
+
+/** 比對用的客戶名稱：全形半形、空白、標點都拿掉，英文小寫，結尾的稱謂（小姐、先生、經理…）也拿掉 */
+function customerNorm_(s) {
+  return String(s || '').normalize('NFKC').toLowerCase()
+    .replace(/[\s.,，。、·・\-_()（）'"「」]/g, '')
+    .replace(/(小姐|先生|女士|經理|院長|老師|店長|老闆|總監|主任|mr|ms|mrs)$/, '');
+}
+
+/** 「秘書紀錄」裡出現過的客戶名稱（不含未署名、處理失敗的寄件人） */
+function knownCustomers_() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SECRETARY_LOG_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(function (h) { return String(h); });
+  const c = secretaryLogCol_(header, '客戶');
+  if (c === -1) return [];
+  const seen = {};
+  sheet.getRange(2, c + 1, sheet.getLastRow() - 1, 1).getValues().forEach(function (r) {
+    const v = String(r[0] || '').replace(/^'/, '');
+    if (v && v !== UNSIGNED_CUSTOMER && v !== '未具名客戶' && v !== '未具名寄件人') seen[v] = true;
+  });
+  return Object.keys(seen);
+}
+
+/**
+ * 同一位客戶只用一個名字（客戶筆記才會合併）。規則：
+ *   - 比對用 customerNorm_（不看空白、標點、全半形、結尾稱謂）
+ *   - 一樣 → 用比較長的寫法（例如「星河咖啡 陳小姐」勝過「星河咖啡陳小姐」以外的短寫法）
+ *   - 一個是另一個的開頭（「星河咖啡」與「星河咖啡 陳小姐」）→ 用比較長的「公司 聯絡人」
+ *   - 新的比較長時，把之前用短名稱的紀錄（試算表、紀錄筆記、報價單、客戶筆記）改成長名稱（upgradeCustomer_）
+ *   - 太短（比對用的字少於 2 個）或「未署名客戶」不合併
+ */
+function canonicalCustomer_(name) {
+  if (!name || name === UNSIGNED_CUSTOMER) return name || UNSIGNED_CUSTOMER;
+  const nn = customerNorm_(name);
+  if (nn.length < 2) return name;
+  const known = knownCustomers_();
+  for (let i = 0; i < known.length; i++) {
+    const k = known[i];
+    const nk = customerNorm_(k);
+    if (nk.length < 2) continue;
+    if (nk === nn || nk.indexOf(nn) === 0 || nn.indexOf(nk) === 0) {
+      if (k.length >= name.length) return k;
+      upgradeCustomer_(k, name);
+      return name;
+    }
+  }
+  return name;
+}
+
+/**
+ * 把舊的（比較短的）客戶名稱改成新的長名稱：試算表「客戶」欄、紀錄筆記與報價單的 frontmatter 客戶、
+ * 紀錄筆記裡的客戶連結、舊的客戶筆記的 客戶（兩篇客戶筆記都會列出同樣的紀錄）。只改這些欄位，你寫的字不動。
+ */
+function upgradeCustomer_(oldName, newName) {
+  try {
+    const log = secretaryLogSheet_();
+    const col = function (n) { return secretaryLogCol_(log.header, n); };
+    const n = log.sheet.getLastRow() - 1;
+    if (n < 1) return;
+    const rows = log.sheet.getRange(2, 1, n, log.header.length).getValues();
+    const oldLink = '[[' + VAULT_CUSTOMER_FOLDER + '/' + customerNoteKey_(oldName) + '|' + mdCell_(oldName) + ']]';
+    const newLink = '[[' + VAULT_CUSTOMER_FOLDER + '/' + customerNoteKey_(newName) + '|' + mdCell_(newName) + ']]';
+    const touch = function (name, withLink) {
+      if (!name) return;
+      const cur = readVaultFile_('秘書', name + '.md');
+      if (!cur || frontmatterValue_(cur.content, '客戶') !== oldName) return;
+      let t = setFrontmatterKeys_(cur.content, { '客戶': yamlStr_(newName) });
+      if (withLink) t = t.split(oldLink).join(newLink);
+      cur.file.setContent(t);
+    };
+    rows.forEach(function (r, i) {
+      if (String(r[col('客戶')]).replace(/^'/, '') !== oldName) return;
+      log.sheet.getRange(i + 2, col('客戶') + 1).setValue(sheetSafe_(newName));
+      touch(String(r[col('知識庫筆記')] || ''), true);
+      touch(String(r[col('報價單')] || ''), false);
+    });
+    const oldNote = readVaultFile_(VAULT_CUSTOMER_FOLDER, customerNoteKey_(oldName) + '.md');
+    if (oldNote && frontmatterValue_(oldNote.content, '客戶') === oldName) {
+      oldNote.file.setContent(setFrontmatterKeys_(oldNote.content, { '客戶': yamlStr_(newName) }));
+    }
+    console.log('秘書：客戶名稱「' + oldName + '」合併成「' + newName + '」');
+  } catch (err) {
+    logError_('秘書：合併客戶名稱', err);
+  }
 }
 
 // ============ 秘書紀錄（試算表＋知識庫筆記）============
@@ -749,8 +912,8 @@ function newSecretaryRecord_(thread, msg, triage, prices) {
   return {
     time: now,
     isoDate: Utilities.formatDate(now, REPORT_TIMEZONE, 'yyyy-MM-dd'),
-    customer: triage.customer || '未具名客戶',
-    subject: msg.getSubject(),
+    customer: triage.customer || UNSIGNED_CUSTOMER,
+    subject: redactEmails_(msg.getSubject()),
     intent: triage.intent || '其他',
     summary: triage.summary || '',
     deadline: triage.deadline || '',
@@ -769,11 +932,11 @@ function newSecretaryRecord_(thread, msg, triage, prices) {
 
 /** 處理失敗的信也留一篇紀錄（狀態「需人工」、沒有草稿）；客戶寫寄件人的顯示名稱，不寫信箱 */
 function failedSecretaryRecord_(thread, msg, err) {
-  let from = '';
+  let customer = UNSIGNED_CUSTOMER;
   let subject = '';
   try {
     const m = msg || thread.getMessages()[0];
-    from = m.getFrom();
+    customer = canonicalCustomer_(resolveCustomer_(senderName_(m.getFrom()), m, m.getPlainBody()));
     subject = m.getSubject();
   } catch (e) {
     subject = thread.getFirstMessageSubject();
@@ -782,8 +945,8 @@ function failedSecretaryRecord_(thread, msg, err) {
   return {
     time: now,
     isoDate: Utilities.formatDate(now, REPORT_TIMEZONE, 'yyyy-MM-dd'),
-    customer: senderName_(from),
-    subject: subject,
+    customer: customer,
+    subject: redactEmails_(subject),
     intent: FAILED_INTENT,
     summary: '',
     deadline: '',
@@ -877,7 +1040,7 @@ function secretaryNoteBlock_(rec) {
     if (rec.quoteNote) lines.push('- 報價單：[[秘書/' + rec.quoteNote + '|' + rec.quoteNote + ']]');
   }
   lines.push('', '## 為什麼需要人工處理', '');
-  if (rec.reasons.length) rec.reasons.forEach(function (r) { lines.push('- ' + mdInline_(r)); });
+  if (rec.reasons.length) rec.reasons.forEach(function (r) { lines.push('- ' + mdInline_(redactEmails_(r))); });
   else lines.push('- （沒有特別標記；寄出前仍請把草稿讀過一次）');
   lines.push('');
   return lines.join('\n') + '\n' + nextStepSection_(rec.status, rec.intent, !!rec.quoteNote, rec.draft);
@@ -1030,7 +1193,7 @@ function saveSecretaryRecord_(rec) {
     '草稿': rec.draft ? 'yes' : 'no',
     '報價單': rec.quoteNote,
     '報價合計': rec.total,
-    '需人工原因': rec.reasons.join('；'),
+    '需人工原因': redactEmails_(rec.reasons.join('；')),
     '下一步': nextStepShort_(rec.status, rec.intent, !!rec.quoteNote, rec.draft),
     '更新時間': new Date(),
     'Gmail 連結': rec.permalink,

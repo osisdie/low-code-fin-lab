@@ -657,9 +657,9 @@ function ensureSymbolNotes_(items, history, createOnly) {
 
 // ============ 客戶筆記（秘書第一次處理這位客戶的信時建立）============
 
-/** 客戶筆記的檔名（不含 .md）：「星河咖啡 陳小姐」→「星河咖啡_陳小姐」 */
+/** 客戶筆記的檔名（不含 .md）：「星河咖啡 陳小姐」→「星河咖啡_陳小姐」；先經過 sanitizeCustomer_，檔名絕不含信箱 */
 function customerNoteKey_(customer) {
-  return noteKey_(customer || '未具名客戶') || '未具名客戶';
+  return noteKey_(sanitizeCustomer_(customer) || UNSIGNED_CUSTOMER) || UNSIGNED_CUSTOMER;
 }
 
 /** 客戶筆記裡程式產生的那一段：用 Bases 列出「秘書」資料夾裡同一位客戶的紀錄與報價單（客戶 == this.客戶） */
@@ -694,7 +694,7 @@ function customerNoteBlock_() {
 
 /** 確保有 客戶/<客戶>.md；已經存在就只更新程式產生的那一段（通常一樣，不會寫入）。回傳筆記名稱（不含 .md） */
 function ensureCustomerNote_(customer) {
-  const name = customer || '未具名客戶';
+  const name = sanitizeCustomer_(customer) || UNSIGNED_CUSTOMER;
   const key = customerNoteKey_(name);
   const block = customerNoteBlock_();
   const full = [

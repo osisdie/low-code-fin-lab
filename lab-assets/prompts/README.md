@@ -7,7 +7,7 @@
 | `02-stage1-chatgpt-task.txt` | Stage 1 | ChatGPT Tasks（免費，上限 3 個任務） | 改寫自原版：去掉 Grok 專屬語句，加上「先上網搜尋」「查不到就說查不到」 |
 | `03-stage2-ai-summary.txt` | Stage 2–3 | OpenRouter 免費模型（`Code.gs` 呼叫） | 數字由資料表提供，LLM 只負責整理；含 `{date}`、`{data_json}` 兩個佔位符 |
 | `04-secretary-triage.txt` | Stage 4 | OpenRouter 免費模型（`Secretary.gs` 呼叫） | 判讀客戶來信 → JSON（意圖、客戶、品項、數量、需人工確認事項）；**不輸出金額**；客戶從內文署名找，不用寄件人欄位。佔位符 `{item_names}`、`{from}`（程式只填寄件人顯示名稱，不含信箱）、`{subject}`、`{body}` |
-| `05-reply-draft.txt` | Stage 4 | OpenRouter 免費模型（`Secretary.gs` 呼叫） | 依判讀結果寫回覆草稿；禁止寫金額、折扣、交期與退款承諾。佔位符 `{triage_json}` |
+| `05-reply-draft.txt` | Stage 4 | OpenRouter 免費模型（`Secretary.gs` 呼叫） | 依判讀結果寫回覆草稿；禁止寫金額、折扣、交期與退款承諾；只用繁體中文；不寫署名（程式在信末加上）。佔位符 `{triage_json}` |
 
 ## 注意
 - 03–05 是**程式**會讀的（內容與 `Code.gs`、`Secretary.gs` 裡的常數同步），佔位符請勿刪除；修改請兩邊一起改。

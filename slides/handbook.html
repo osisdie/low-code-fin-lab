@@ -107,6 +107,12 @@
   .steps{counter-reset:s;list-style:none;padding:0;}
   .steps li{counter-increment:s;position:relative;padding:6px 0 10px 44px;font-size:15.5px;}
   .steps li::before{content:counter(s);position:absolute;left:0;top:6px;width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;font-weight:900;display:flex;align-items:center;justify-content:center;font-size:14px;}
+  .card code{overflow-wrap:anywhere;}
+  .card h3 + .desc{margin-top:8px;}
+  .toc{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin:4px 0 6px;font-size:13.5px;}
+  .toc .toc-label{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;color:var(--ink-soft);margin-right:4px;}
+  .toc a{text-decoration:none;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:2px 11px;color:var(--ink);}
+  .toc a:hover{border-color:var(--accent);color:var(--accent);}
   .footer{margin-top:60px;border-top:3px double var(--rule);padding-top:16px;font-size:12.5px;color:var(--ink-soft);text-align:center;line-height:1.9;}
   @media print{ body{font-size:13px;} .sheet{max-width:none;padding:0;} .section-bar{margin-top:26px;} .card,.tbl,figure{page-break-inside:avoid;} }
   @media (max-width:560px){ .sheet{padding:16px 16px 70px;} .masthead h1{font-size:28px;} .hero{padding:16px 16px;} .hero h2{font-size:20px;} .section-bar .tag{font-size:14px;padding:4px 10px;letter-spacing:.06em;} body{font-size:16px;} }
@@ -131,14 +137,26 @@
   <div class="ribbon">今天的原則：數字來自資料表，AI 只負責整理文字；所有回信都只存成草稿，由你決定要不要寄。</div>
   <div class="stance">
     <span class="mark">⚠️</span>
-    <div><b>先講清楚：</b>免費額度會變動，以各家官網為準（本手冊查證日期 <span class="mono">2026-10-31</span>）。報告內容僅供學習，<b>不構成投資建議</b>；範例公司、客戶、金額皆為虛構。</div>
+    <div><b>先講清楚：</b>免費額度會變動，以各家官網為準（本手冊查證日期 <span class="mono">2026-11-24</span>；替代方案價格為 2026 年 10 月水準）。報告內容僅供學習，<b>不構成投資建議</b>；範例公司、客戶、金額皆為虛構。</div>
   </div>
 
   <div class="dateline">
     <span>形式：半日 4 小時（13:30–17:30）・動手實作</span>
-    <span class="mono">HANDBOOK · 2026-10-31</span>
+    <span class="mono">HANDBOOK · 2026-11-26</span>
     <span>對象：主管、業務、財會、非技術人員</span>
   </div>
+
+  <nav class="toc" aria-label="目錄">
+    <span class="toc-label">目錄</span>
+    <a href="#schedule">今日時間表</a>
+    <a href="#blocks">五塊積木</a>
+    <a href="#stages">五個 Stage</a>
+    <a href="#stuck">Stage 2 現場卡點</a>
+    <a href="#numbers">數字原則</a>
+    <a href="#compare">替代方案</a>
+    <a href="#security">安全重點</a>
+    <a href="#links">官網</a>
+  </nav>
 
   <div class="hero">
     <h2>「全自動」做得到什麼？哪裡一定要留給人？</h2>
@@ -152,9 +170,9 @@
   <div class="timeline">
     <div class="row"><div class="t">13:30 · 20 分</div><div class="h">Stage 0 概念與期望管理</div><div class="d">Agent 是什麼、五塊積木、全自動的真實邊界。寫下你的追蹤清單。</div></div>
     <div class="row"><div class="t">13:50 · 30 分</div><div class="h">Stage 1 No-Code：ChatGPT Tasks 日報</div><div class="d">一句話建每日任務，並抽查 AI 給的數字準不準。</div></div>
-    <div class="row"><div class="t">14:20 · 60 分</div><div class="h">Stage 2 一鍵副本 Sheet → 每天一封「今日總覽」</div><div class="d">建立範本副本、貼上 OpenRouter key（免費、不用綁卡）、按選單；三種版面任選，試算表「日報紀錄」每天記一列。</div></div>
-    <div class="row"><div class="t">15:20 · 10 分</div><div class="h">休息</div></div>
-    <div class="row"><div class="t">15:30 · 45 分</div><div class="h">Stage 3 Markdown 知識庫 × Obsidian（加分題）</div><div class="d">日報每天自動存成 .md，用 Obsidian 看儀表板、寫每日筆記、看關聯圖。</div></div>
+    <div class="row"><div class="t">14:20 · 65 分</div><div class="h">Stage 2 一鍵副本 Sheet → 每天一封「今日總覽」</div><div class="d">建立範本副本、貼上 OpenRouter key（免費、不用綁卡，也可以先留空）、按選單；按 ② 後要等 3～5 分鐘。三種版面任選，試算表「日報紀錄」每天記一列。</div></div>
+    <div class="row"><div class="t">15:25 · 10 分</div><div class="h">休息</div></div>
+    <div class="row"><div class="t">15:35 · 40 分</div><div class="h">Stage 3 Markdown 知識庫 × Obsidian（加分題）</div><div class="d">日報每天自動存成 .md，用 Obsidian 看儀表板、寫每日筆記、看關聯圖。</div></div>
     <div class="row"><div class="t">16:15 · 55 分</div><div class="h">Stage 4 私人商務秘書</div><div class="d">貼上「AI秘書」標籤的信 → Gmail 回覆草稿＋報價單草稿存進知識庫。</div></div>
     <div class="row"><div class="t">17:10 · 20 分</div><div class="h">收尾：安全、免費的真相、行動清單</div><div class="d">替代方案怎麼選、1 週／1 個月／3 個月要做什麼。</div></div>
   </div>
@@ -196,14 +214,14 @@
       <div class="impact"><b>天花板：</b>數字可能是舊的、格式每天不同、只在 app 內、只有 3 個任務。<br><a href="../docs/student/student-stage-1-lab.md">講義：Stage 1 →</a></div>
     </div>
     <div class="card">
-      <div class="tags"><span class="pill">60 分</span><span class="pill now">Low-Code・一鍵副本</span></div>
+      <div class="tags"><span class="pill">65 分</span><span class="pill now">Low-Code・一鍵副本</span></div>
       <h3>Stage 2 · 每天一封「今日總覽」</h3>
       <div class="eng">sheets · apps script · openrouter · gmail</div>
-      <div class="desc">點講師給的連結「建立副本」→ 選單「① 一鍵設定」貼 OpenRouter key →「② 立即寄一封今日總覽」→「🎨 選擇信件版面」（精簡／完整／表格）→「③ 開啟每日自動」。全程不用打開程式編輯器；試算表「日報紀錄」分頁每天記一列，不裝任何軟體也能看趨勢。</div>
+      <div class="desc">點講師給的連結「建立副本」→ 選單「① 一鍵設定」貼 OpenRouter key →「② 立即寄一封今日總覽」（AI 開著時要等 3～5 分鐘，不要重按）→「🎨 選擇信件版面」（精簡／完整／表格）→「③ 開啟每日 07:00 自動寄送」。只想更新數字、不想收信就按「↻」。全程不用打開程式編輯器；試算表「日報紀錄」分頁每天記一列，不裝任何軟體也能看趨勢。</div>
       <div class="impact"><b>天花板：</b>資料有延遲、美國假日無法自動判斷；表格只有數字，寫不下自己的觀察。<br><a href="../docs/student/student-stage-2-lab.md">講義：Stage 2 →</a></div>
     </div>
     <div class="card">
-      <div class="tags"><span class="pill">45 分</span><span class="pill pur">知識庫</span></div>
+      <div class="tags"><span class="pill">40 分</span><span class="pill pur">知識庫</span></div>
       <h3>Stage 3 · Markdown 知識庫 × Obsidian（加分題）</h3>
       <div class="eng">markdown vault · obsidian · bases</div>
       <div class="desc">日報每天自動存成 <code>.md</code> 進雲端硬碟 <code>FinLab-Vault</code>，同步到電腦後用 Obsidian 打開：儀表板一眼看多天數字、每日筆記寫自己的觀察、關聯圖看標的連到哪幾天。</div>
@@ -224,6 +242,43 @@
       <div class="impact"><a href="../docs/student/student-free-tools-menu.md">免費工具選單 →</a>　<a href="../docs/student/student-security-gmail-keys.md">安全說明 →</a></div>
     </div>
   </div>
+
+  <!-- 現場卡點 -->
+  <div class="section-bar" id="stuck"><span class="tag red">Stage 2 現場卡點：照著做之前先看</span></div>
+  <p class="week-note">講師實測整條流程時，大家最常卡在下面六個地方。卡住時先對照這裡，再舉手。</p>
+  <div class="cards">
+    <div class="card">
+      <div class="tags"><span class="pill red">開始前</span></div>
+      <h3>1. Chrome 登入好幾個 Google 帳號</h3>
+      <div class="desc">同一個 Chrome 同時登入多個帳號時，「擴充功能 → Apps Script」常會打不開，畫面寫「很抱歉，目前無法開啟這個檔案」。<b>只登入上課帳號</b>，或開<b>無痕視窗／訪客視窗</b>再登入。</div>
+    </div>
+    <div class="card">
+      <div class="tags"><span class="pill red">① 授權</span></div>
+      <h3>2. 找不到「允許」按鈕</h3>
+      <div class="desc">「Google 尚未驗證」→ 進階 → 前往（不安全）之後，權限清單很長：全部勾選，<b>往下捲到最底</b>才看得到「繼續（Continue）／允許」。授權完通常會直接跳出貼 key 的框；沒跳就再點一次 ①。</div>
+    </div>
+    <div class="card">
+      <div class="tags"><span class="pill red">② 試寄</span></div>
+      <h3>3. 按了 ② 好像沒反應</h3>
+      <div class="desc">AI 開著時要等 <b>3～5 分鐘</b>（講師實測約 4 分鐘），上方會顯示「正在執行指令碼」。<b>不要重按</b>，重按會多寄一封、多用一次額度。跑完會跳出「已寄出 ✅」。Apps Script 一次最多跑 6 分鐘，超過會出現「超過執行時間上限」，等一下再按一次。</div>
+    </div>
+    <div class="card">
+      <div class="tags"><span class="pill">↻</span></div>
+      <h3>4. 只想更新數字，不想收信</h3>
+      <div class="desc">按「<b>↻ 只更新數字與知識庫（不寄信）</b>」：更新「日報紀錄」和知識庫裡今天的日報，但不寄信。AI 開著一樣要等 3～5 分鐘，也一樣會用掉額度，不要一直按。</div>
+    </div>
+    <div class="card">
+      <div class="tags"><span class="pill">③ 排程</span></div>
+      <h3>5. 每天幾點寄？想改時間</h3>
+      <div class="desc">預設每天 <b>07:00</b> 這個小時內寄出（不一定剛好整點）。想改：指令碼屬性加 <code>REPORT_HOUR</code>（0～23，例如 <code>6</code>），<b>再按一次 ③</b> 才生效；重新整理試算表，選單上的時間才會跟著變。免費額度台灣時間 8 點重置，7 點那封用的是前一天剩下的額度（以官網為準，查證日期 2026-11-24）。</div>
+    </div>
+    <div class="card">
+      <div class="tags"><span class="pill">數據分頁</span></div>
+      <h3>6. 匯率那幾列是 #N/A</h3>
+      <div class="desc">C 欄公式要是 <code>=IFERROR(GOOGLEFINANCE(B2,"price"),GOOGLEFINANCE(B2))</code>：匯率不接受 <code>"price"</code>，要用不帶屬性的寫法。匯率的 D、E 欄空白是正常的，漲跌由程式向 Yahoo Finance 補。舊副本沒改公式也不用慌，程式會改用 Yahoo 備援補數字。</div>
+    </div>
+  </div>
+  <div class="callout red"><b>週末上課提醒：</b>週六、週日按 ② 時美股休市，信裡的美股數字是上一個交易日（通常是週五）的收盤。AI 摘要會寫「美股休市」；精簡、表格版面另有一行「美股今日休市」，但 AI 關閉＋完整版面目前不會顯示這一行。</div>
 
   <!-- 數字原則 -->
   <div class="section-bar" id="numbers"><span class="tag green">為什麼數字要由資料表提供？</span></div>
@@ -265,11 +320,11 @@
     </div>
     <div class="card">
       <h3>「Google 尚未驗證這個應用程式」</h3>
-      <div class="desc">自己副本裡的程式第一次授權會出現這個警告：因為程式是你自己的、沒送 Google 審查。確認是講師給的範本後，點「進階 → 前往（不安全）」繼續。秘書功能要讀信、建草稿，權限畫面會更明顯，<b>請看清楚再同意</b>。</div>
+      <div class="desc">自己副本裡的程式第一次授權會出現這個警告：因為程式是你自己的、沒送 Google 審查。確認是講師給的範本後，點「進階 → 前往（不安全）」繼續；權限清單要<b>往下捲到最底</b>，全部勾選後按「允許」。秘書功能要讀信、建草稿，權限畫面會更明顯，<b>請看清楚再同意</b>。</div>
     </div>
     <div class="card">
       <h3>公司帳號可能被擋</h3>
-      <div class="desc">Google Workspace（公司）帳號的管理員常會限制 Apps Script、Gmail 權限或對外連線。<b>課堂請用個人 Gmail</b>；回公司要導入，先問 IT。</div>
+      <div class="desc">Google Workspace（公司）帳號的管理員常會限制 Apps Script、Gmail 權限或對外連線。<b>課堂請用個人 Gmail</b>；回公司要導入，先問 IT。同一個 Chrome 登入好幾個 Google 帳號時，Apps Script 也可能打不開，改用無痕／訪客視窗，或只登入上課帳號。</div>
     </div>
     <div class="card">
       <h3>免費 AI 模型與客戶資料</h3>
@@ -277,7 +332,7 @@
     </div>
     <div class="card">
       <h3>key 只放「指令碼屬性」</h3>
-      <div class="desc">一鍵設定會把 OpenRouter key 存進指令碼屬性，不出現在表格、分享表格也看不到。不要貼進群組、截圖或程式碼；外洩就到 OpenRouter 的 Keys 頁面刪除重建。</div>
+      <div class="desc">一鍵設定會把 OpenRouter key 存進指令碼屬性，不會出現在表格裡；但<b>有編輯權的人看得到指令碼屬性</b>，分享表格時只給「檢視」。不要貼進群組、截圖或程式碼；外洩就到 OpenRouter 的 Keys 頁面刪除重建。</div>
     </div>
   </div>
   <div class="srcbox"><div class="srclabel">講義 · 延伸閱讀</div>
@@ -301,7 +356,7 @@
 
   <div class="footer">
     本手冊內容僅供學習，<b>不構成投資建議</b>；範例公司、客戶、金額皆為虛構。<br>
-    免費額度與價格以各家官網為準・查證日期 <span class="mono">2026-10-31</span>・教材 CC BY 4.0／程式碼 MIT
+    免費額度與價格以各家官網為準・查證日期 <span class="mono">2026-11-24</span>（替代方案價格為 2026 年 10 月水準）・教材 CC BY 4.0／程式碼 MIT
   </div>
 
 </div>

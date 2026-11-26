@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1660" viewBox="0 0 1200 1660" font-family="'Noto Sans TC','Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif" role="img" aria-labelledby="jm-title jm-desc">
+<title id="jm-title">AI 數位分身學習路線圖：第 0 站到第 4 站</title>
+<desc id="jm-desc">報紙風格的路線圖。五個站：暖身、No-Code 日報、Low-Code 今日總覽信、Obsidian 知識庫、商務秘書。每站寫出要點什麼、會得到什麼、大約要多久。全程使用免費資源。</desc>
+<rect x="0" y="0" width="1200" height="1660" rx="18" fill="#faf7f0"/>
+<rect x="14" y="14" width="1172" height="1632" rx="12" fill="none" stroke="#e4dfd2" stroke-width="2"/>
+<text x="48" y="62" font-size="15" font-weight="700" fill="#c8341e" text-anchor="start" letter-spacing="4">LOW-CODE FIN LAB</text>
+<text x="1152" y="62" font-size="15" font-weight="700" fill="#5c5a50" text-anchor="end">學員路線圖・第 0 站 → 第 4 站・全程免費資源</text>
+<line x1="40" y1="80" x2="1160" y2="80" stroke="#20211c" stroke-width="3"/>
+<line x1="40" y1="86" x2="1160" y2="86" stroke="#20211c" stroke-width="1"/>
+<text x="600.0" y="160" font-size="50" font-weight="900" fill="#20211c" text-anchor="middle">五個站，做出每天替你跑腿的 AI 數位分身</text>
+<text x="600.0" y="212" font-size="22" font-weight="400" fill="#5c5a50" text-anchor="middle">不寫程式、不花錢：建立副本、按幾個選單，就有每天一封的財經信、</text>
+<text x="600.0" y="244" font-size="22" font-weight="400" fill="#5c5a50" text-anchor="middle">會自己長大的知識庫，和「只寫草稿、從不亂寄」的商務秘書。</text>
+<line x1="40" y1="276" x2="1160" y2="276" stroke="#20211c" stroke-width="1"/>
+<rect x="48" y="294" width="14" height="14" rx="3" fill="#20211c"/>
+<text x="70" y="307" font-size="15" font-weight="700" fill="#5c5a50" text-anchor="start">你點什麼</text>
+<rect x="188" y="294" width="14" height="14" rx="3" fill="#2c7a4b"/>
+<text x="210" y="307" font-size="15" font-weight="700" fill="#5c5a50" text-anchor="start">你得到什麼</text>
+<g transform="translate(335 301)"><circle r="7" fill="none" stroke="#5c5a50" stroke-width="2.5"/><polyline points="0,-3.5 0,0 3,2" fill="none" stroke="#5c5a50" stroke-width="2"/></g>
+<text x="350" y="307" font-size="15" font-weight="700" fill="#5c5a50" text-anchor="start">大約多久</text>
+<text x="1152" y="307" font-size="15" font-weight="400" fill="#5c5a50" text-anchor="end">時間是課堂上的參考值，慢慢來沒關係</text>
+<line x1="96" y1="398" x2="96" y2="1420" stroke="#20211c" stroke-width="6" stroke-dasharray="2 12" stroke-linecap="round"/>
+<rect x="150" y="336" width="1010" height="190" rx="14" fill="#ffffff" stroke="#e4dfd2" stroke-width="2"/>
+<rect x="150" y="336" width="10" height="190" rx="5" fill="#b9760c"/>
+<circle cx="96" cy="398" r="34" fill="#b9760c" stroke="#faf7f0" stroke-width="6"/>
+<text x="96" y="412" font-size="40" font-weight="900" fill="#ffffff" text-anchor="middle">0</text>
+<rect x="62" y="442" width="68" height="26" rx="6" fill="#faf7f0"/>
+<text x="96" y="460" font-size="15" font-weight="700" fill="#5c5a50" text-anchor="middle">第 0 站</text>
+<g transform="translate(186 366)"><circle cx="40" cy="44" r="26" fill="#fff" stroke="#20211c" stroke-width="4"/><line x1="40" y1="44" x2="40" y2="28" stroke="#20211c" stroke-width="4" stroke-linecap="round"/><line x1="40" y1="44" x2="52" y2="50" stroke="#b9760c" stroke-width="4" stroke-linecap="round"/><circle cx="18" cy="18" r="8" fill="#b9760c"/><circle cx="62" cy="18" r="8" fill="#b9760c"/><line x1="24" y1="70" x2="18" y2="78" stroke="#20211c" stroke-width="4" stroke-linecap="round"/><line x1="56" y1="70" x2="62" y2="78" stroke="#20211c" stroke-width="4" stroke-linecap="round"/></g>
+<text x="296" y="386" font-size="27" font-weight="900" fill="#20211c" text-anchor="start">暖身：搞懂 Agent，做出第一個每日任務</text>
+<text x="296" y="416" font-size="15" font-weight="500" fill="#5c5a50" text-anchor="start">ChatGPT Tasks</text>
+<rect x="980" y="360" width="156" height="46" rx="23" fill="#b9760c"/>
+<g transform="translate(998 383)"><circle r="10" fill="none" stroke="#fff" stroke-width="3"/><polyline points="0,-5 0,0 4,3" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></g>
+<text x="1066" y="390" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">約 20 分鐘</text>
+<line x1="186" y1="440" x2="1136" y2="440" stroke="#e4dfd2" stroke-width="1.5"/>
+<rect x="186" y="452" width="64" height="28" rx="6" fill="#20211c"/>
+<text x="218" y="472" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你點</text>
+<text x="266" y="472" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">在 ChatGPT 貼上一段話，按「確認」建立排程任務</text>
+<rect x="186" y="492" width="64" height="28" rx="6" fill="#2c7a4b"/>
+<text x="218" y="512" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你得到</text>
+<text x="266" y="512" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">第一個每天自己跑的小任務，順便搞懂 Agent 的五塊積木</text>
+<rect x="150" y="544" width="1010" height="190" rx="14" fill="#ffffff" stroke="#e4dfd2" stroke-width="2"/>
+<rect x="150" y="544" width="10" height="190" rx="5" fill="#6a3fb5"/>
+<circle cx="96" cy="606" r="34" fill="#6a3fb5" stroke="#faf7f0" stroke-width="6"/>
+<text x="96" y="620" font-size="40" font-weight="900" fill="#ffffff" text-anchor="middle">1</text>
+<rect x="62" y="650" width="68" height="26" rx="6" fill="#faf7f0"/>
+<text x="96" y="668" font-size="15" font-weight="700" fill="#5c5a50" text-anchor="middle">第 1 站</text>
+<g transform="translate(186 574)"><rect x="6" y="10" width="60" height="42" rx="10" fill="#fff" stroke="#20211c" stroke-width="4"/><path d="M20 52 L16 68 L34 52 Z" fill="#fff" stroke="#20211c" stroke-width="4" stroke-linejoin="round"/><line x1="18" y1="26" x2="54" y2="26" stroke="#6a3fb5" stroke-width="4" stroke-linecap="round"/><line x1="18" y1="38" x2="42" y2="38" stroke="#6a3fb5" stroke-width="4" stroke-linecap="round"/><circle cx="62" cy="62" r="13" fill="#6a3fb5"/><polyline points="56,62 61,67 69,57" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></g>
+<text x="296" y="594" font-size="27" font-weight="900" fill="#20211c" text-anchor="start">No-Code：完整的每日日報</text>
+<text x="296" y="624" font-size="15" font-weight="500" fill="#5c5a50" text-anchor="start">ChatGPT Tasks</text>
+<rect x="980" y="568" width="156" height="46" rx="23" fill="#6a3fb5"/>
+<g transform="translate(998 591)"><circle r="10" fill="none" stroke="#fff" stroke-width="3"/><polyline points="0,-5 0,0 4,3" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></g>
+<text x="1066" y="598" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">約 30 分鐘</text>
+<line x1="186" y1="648" x2="1136" y2="648" stroke="#e4dfd2" stroke-width="1.5"/>
+<rect x="186" y="660" width="64" height="28" rx="6" fill="#20211c"/>
+<text x="218" y="680" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你點</text>
+<text x="266" y="680" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">貼上日報 prompt → 設成每天 8:00 的任務 → 抽查 3 個數字</text>
+<rect x="186" y="700" width="64" height="28" rx="6" fill="#2c7a4b"/>
+<text x="218" y="720" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你得到</text>
+<text x="266" y="720" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">「龍蝦財經」風格的每日摘要，並親眼看到：AI 搜尋的數字不一定準</text>
+<rect x="150" y="752" width="1010" height="190" rx="14" fill="#ffffff" stroke="#e4dfd2" stroke-width="2"/>
+<rect x="150" y="752" width="10" height="190" rx="5" fill="#c8341e"/>
+<circle cx="96" cy="814" r="34" fill="#c8341e" stroke="#faf7f0" stroke-width="6"/>
+<text x="96" y="828" font-size="40" font-weight="900" fill="#ffffff" text-anchor="middle">2</text>
+<rect x="62" y="858" width="68" height="26" rx="6" fill="#faf7f0"/>
+<text x="96" y="876" font-size="15" font-weight="700" fill="#5c5a50" text-anchor="middle">第 2 站</text>
+<g transform="translate(186 782)"><rect x="4" y="16" width="72" height="50" rx="6" fill="#fff" stroke="#20211c" stroke-width="4"/><polyline points="4,18 40,44 76,18" fill="none" stroke="#20211c" stroke-width="4" stroke-linejoin="round"/><rect x="46" y="44" width="32" height="32" rx="6" fill="#c8341e"/><polyline points="51,69 58,60 64,64 73,51" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></g>
+<text x="296" y="802" font-size="27" font-weight="900" fill="#20211c" text-anchor="start">Low-Code：真數據「今日總覽」信</text>
+<text x="296" y="832" font-size="15" font-weight="500" fill="#5c5a50" text-anchor="start">Google Sheet · Apps Script · Gmail · OpenRouter（可不開）</text>
+<rect x="980" y="776" width="156" height="46" rx="23" fill="#c8341e"/>
+<g transform="translate(998 799)"><circle r="10" fill="none" stroke="#fff" stroke-width="3"/><polyline points="0,-5 0,0 4,3" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></g>
+<text x="1066" y="806" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">約 60 分鐘</text>
+<line x1="186" y1="856" x2="1136" y2="856" stroke="#e4dfd2" stroke-width="1.5"/>
+<rect x="186" y="868" width="64" height="28" rx="6" fill="#20211c"/>
+<text x="218" y="888" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你點</text>
+<text x="266" y="888" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">建立副本 → ① 一鍵設定 → ② 立即寄一封 → 🎨 挑版面 → ③ 每日 07:00</text>
+<rect x="186" y="908" width="64" height="28" rx="6" fill="#2c7a4b"/>
+<text x="218" y="928" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你得到</text>
+<text x="266" y="928" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">每天一封數字可核對的信（三種版面任選）＋「日報紀錄」趨勢表</text>
+<rect x="150" y="960" width="1010" height="190" rx="14" fill="#ffffff" stroke="#e4dfd2" stroke-width="2"/>
+<rect x="150" y="960" width="10" height="190" rx="5" fill="#2c7a4b"/>
+<circle cx="96" cy="1022" r="34" fill="#2c7a4b" stroke="#faf7f0" stroke-width="6"/>
+<text x="96" y="1036" font-size="40" font-weight="900" fill="#ffffff" text-anchor="middle">3</text>
+<rect x="62" y="1066" width="68" height="26" rx="6" fill="#faf7f0"/>
+<text x="96" y="1084" font-size="15" font-weight="700" fill="#5c5a50" text-anchor="middle">第 3 站</text>
+<g transform="translate(186 990)"><rect x="8" y="14" width="16" height="58" rx="3" fill="#2c7a4b"/><rect x="28" y="22" width="16" height="50" rx="3" fill="#fff" stroke="#20211c" stroke-width="4"/><rect x="48" y="10" width="16" height="62" rx="3" fill="#fff" stroke="#20211c" stroke-width="4" transform="rotate(10 56 41)"/><line x1="4" y1="74" x2="76" y2="74" stroke="#20211c" stroke-width="4" stroke-linecap="round"/><line x1="12" y1="26" x2="20" y2="26" stroke="#fff" stroke-width="3"/></g>
+<text x="296" y="1010" font-size="27" font-weight="900" fill="#20211c" text-anchor="start">知識庫：會自己長大的資料夾（加分題）</text>
+<text x="296" y="1040" font-size="15" font-weight="500" fill="#5c5a50" text-anchor="start">Google 雲端硬碟電腦版 · Obsidian</text>
+<rect x="980" y="984" width="156" height="46" rx="23" fill="#2c7a4b"/>
+<g transform="translate(998 1007)"><circle r="10" fill="none" stroke="#fff" stroke-width="3"/><polyline points="0,-5 0,0 4,3" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></g>
+<text x="1066" y="1014" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">約 45 分鐘</text>
+<line x1="186" y1="1064" x2="1136" y2="1064" stroke="#e4dfd2" stroke-width="1.5"/>
+<rect x="186" y="1076" width="64" height="28" rx="6" fill="#20211c"/>
+<text x="218" y="1096" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你點</text>
+<text x="266" y="1096" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">同步 FinLab-Vault 到電腦 → Obsidian「開啟資料夾作為 vault」</text>
+<rect x="186" y="1116" width="64" height="28" rx="6" fill="#2c7a4b"/>
+<text x="218" y="1136" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你得到</text>
+<text x="266" y="1136" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">首頁儀表板、每日筆記、關聯圖；全是純文字，換軟體也打得開</text>
+<rect x="150" y="1168" width="1010" height="190" rx="14" fill="#ffffff" stroke="#e4dfd2" stroke-width="2"/>
+<rect x="150" y="1168" width="10" height="190" rx="5" fill="#1f5f99"/>
+<circle cx="96" cy="1230" r="34" fill="#1f5f99" stroke="#faf7f0" stroke-width="6"/>
+<text x="96" y="1244" font-size="40" font-weight="900" fill="#ffffff" text-anchor="middle">4</text>
+<rect x="62" y="1274" width="68" height="26" rx="6" fill="#faf7f0"/>
+<text x="96" y="1292" font-size="15" font-weight="700" fill="#5c5a50" text-anchor="middle">第 4 站</text>
+<g transform="translate(186 1198)"><rect x="6" y="8" width="52" height="64" rx="5" fill="#fff" stroke="#20211c" stroke-width="4"/><line x1="16" y1="24" x2="48" y2="24" stroke="#5c5a50" stroke-width="3.5" stroke-linecap="round"/><line x1="16" y1="36" x2="48" y2="36" stroke="#5c5a50" stroke-width="3.5" stroke-linecap="round"/><line x1="16" y1="48" x2="34" y2="48" stroke="#5c5a50" stroke-width="3.5" stroke-linecap="round"/><path d="M48 70 L72 34 L80 40 L56 76 L46 78 Z" fill="#1f5f99" stroke="#20211c" stroke-width="3" stroke-linejoin="round"/></g>
+<text x="296" y="1218" font-size="27" font-weight="900" fill="#20211c" text-anchor="start">商務秘書：來信 → 回覆草稿＋報價單草稿</text>
+<text x="296" y="1248" font-size="15" font-weight="500" fill="#5c5a50" text-anchor="start">Gmail 標籤 · 報價表</text>
+<rect x="980" y="1192" width="156" height="46" rx="23" fill="#1f5f99"/>
+<g transform="translate(998 1215)"><circle r="10" fill="none" stroke="#fff" stroke-width="3"/><polyline points="0,-5 0,0 4,3" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></g>
+<text x="1066" y="1222" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">約 55 分鐘</text>
+<line x1="186" y1="1272" x2="1136" y2="1272" stroke="#e4dfd2" stroke-width="1.5"/>
+<rect x="186" y="1284" width="64" height="28" rx="6" fill="#20211c"/>
+<text x="218" y="1304" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你點</text>
+<text x="266" y="1304" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">把信貼上「AI秘書」標籤 → ⑤ 秘書：處理（想自動就按 ⑥）</text>
+<rect x="186" y="1324" width="64" height="28" rx="6" fill="#2c7a4b"/>
+<text x="218" y="1344" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你得到</text>
+<text x="266" y="1344" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">Gmail 回覆「草稿」＋報價單草稿；金額來自報價表，寄出由你決定</text>
+<circle cx="96" cy="1452" r="34" fill="#20211c" stroke="#faf7f0" stroke-width="6"/>
+<polygon points="84,1434 112,1444 84,1454" fill="#c8341e"/>
+<line x1="84" y1="1432" x2="84" y2="1472" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+<rect x="66" y="1492" width="60" height="26" rx="6" fill="#faf7f0"/>
+<text x="96" y="1510" font-size="15" font-weight="700" fill="#5c5a50" text-anchor="middle">終點</text>
+<rect x="150" y="1382" width="1010" height="150" rx="14" fill="#20211c"/>
+<text x="186" y="1428" font-size="26" font-weight="900" fill="#ffffff" text-anchor="start">下課時，你手上會有這三樣東西</text>
+<rect x="186" y="1448" width="306" height="64" rx="10" fill="none" stroke="#f2b84b" stroke-width="2"/>
+<text x="202" y="1476" font-size="18" font-weight="700" fill="#f2b84b" text-anchor="start">每天早上的「今日總覽」信</text>
+<text x="202" y="1501" font-size="15" font-weight="400" fill="#eeeadf" text-anchor="start">財經數字＋秘書待辦，一天只看一封</text>
+<rect x="508" y="1448" width="306" height="64" rx="10" fill="none" stroke="#6fcf97" stroke-width="2"/>
+<text x="524" y="1476" font-size="18" font-weight="700" fill="#6fcf97" text-anchor="start">會長大的財經知識庫</text>
+<text x="524" y="1501" font-size="15" font-weight="400" fill="#eeeadf" text-anchor="start">日報自動存進 FinLab-Vault</text>
+<rect x="830" y="1448" width="306" height="64" rx="10" fill="none" stroke="#8fc1f0" stroke-width="2"/>
+<text x="846" y="1476" font-size="18" font-weight="700" fill="#8fc1f0" text-anchor="start">只寫草稿的商務秘書</text>
+<text x="846" y="1501" font-size="15" font-weight="400" fill="#eeeadf" text-anchor="start">按「傳送」的永遠是你</text>
+<line x1="40" y1="1558" x2="1160" y2="1558" stroke="#20211c" stroke-width="1"/>
+<text x="48" y="1594" font-size="18" font-weight="900" fill="#c8341e" text-anchor="start">安心三原則</text>
+<circle cx="168" cy="1588" r="5" fill="#c8341e"/>
+<text x="182" y="1594" font-size="16" font-weight="500" fill="#20211c" text-anchor="start">鑰匙只放「指令碼屬性」，不貼聊天室、不截圖</text>
+<circle cx="588" cy="1588" r="5" fill="#c8341e"/>
+<text x="602" y="1594" font-size="16" font-weight="500" fill="#20211c" text-anchor="start">秘書只建草稿、不寄信</text>
+<circle cx="808" cy="1588" r="5" fill="#c8341e"/>
+<text x="822" y="1594" font-size="16" font-weight="500" fill="#20211c" text-anchor="start">數字來自資料表，不靠 AI 記憶</text>
+<text x="48" y="1624" font-size="14" font-weight="400" fill="#5c5a50" text-anchor="start">全程使用免費資源（免費額度以官網為準）。報告僅供學習，不構成投資建議。範例公司與金額皆為虛構。</text>
+</svg>

@@ -108,6 +108,7 @@ const REPLY_PROMPT = [
 ].join('\n');
 
 // ============ 選單 ============
+/** 選單 ⑤：手動處理一次。AI 關閉時只跳說明：不讀信、不呼叫 AI、不改標籤 */
 function menuProcessSecretary() {
   if (!isAiEnabled_()) { alertAiOffForSecretary_('秘書處理'); return; }
   ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, SECRETARY_SCOPES);
@@ -123,6 +124,7 @@ function menuProcessSecretary() {
   });
 }
 
+/** 選單 ⑥：建立每小時一次的自動處理（AI 關閉時只跳說明，不建立觸發器） */
 function menuEnableSecretary() {
   if (!isAiEnabled_()) { alertAiOffForSecretary_('開啟秘書自動處理'); return; }
   // 觸發器在背景執行時沒辦法跳授權，所以建立前先確認權限都有勾
@@ -134,6 +136,7 @@ function menuEnableSecretary() {
   });
 }
 
+/** 選單 ⑦：刪掉秘書的觸發器（已建立的草稿不會被刪） */
 function menuDisableSecretary() {
   runMenu_('停止秘書自動處理', function () {
     removeTriggers_('processSecretaryMail');
@@ -142,7 +145,12 @@ function menuDisableSecretary() {
 }
 
 // ============ 主流程（設定觸發器時請選這個）============
+/**
+ * 秘書主流程：每次最多處理 MAX_THREADS_PER_RUN 串信；每串信只建立一封回覆「草稿」，不寄出。
+ * 回傳 { drafted, quotes, failed, skipped, priceSkipped } 給選單 ⑤ 顯示。每小時的觸發器執行的就是這個函式。
+ */
 function processSecretaryMail() {
+  // 安全：AI 關閉就整個略過（排程觸發也一樣）：0 次 AI 呼叫、不讀信、標籤不動
   if (!isAiEnabled_()) {
     console.warn('AI 已關閉，略過秘書處理。');
     return { drafted: 0, quotes: 0, failed: 0, skipped: 0, priceSkipped: [] };
@@ -193,6 +201,7 @@ function processSecretaryMail() {
         }
       }
 
+      // 安全：createDraftReply 只建立「草稿」，不會寄出；整份程式沒有任何寄信給客戶的動作
       msg.createDraftReply(body);
       result.drafted++;
 
@@ -226,6 +235,10 @@ function hasAiDraft_(thread) {
 }
 
 // ============ 判讀與撰寫 ============
+/**
+ * 請 AI 判讀一封信，回傳 { intent, customer, summary, items, unmatched, deadline, needs_human, tone }。
+ * 只送「品項名稱」給 AI，不送單價；信件內文只送前 MAX_BODY_CHARS 個字。
+ */
 function triageEmail_(msg, prices) {
   const names = Object.keys(prices).map(function (k) { return '- ' + prices[k].name; }).join('\n') || '（報價表是空的）';
   const from = msg.getFrom();
@@ -274,6 +287,7 @@ function normalizeTriage_(t, subject, body) {
   return t;
 }
 
+/** 依判讀結果請 AI 寫回覆內文（REPLY_PROMPT 禁止寫金額與承諾）；報價明細之後由系統附在信末 */
 function draftReply_(triage) {
   const json = JSON.stringify(triage, null, 2);
   return callAi_(REPLY_PROMPT.replace('{triage_json}', function () { return json; })).trim();
@@ -395,6 +409,7 @@ function buildQuote_(triage, prices) {
   (triage.unmatched || []).forEach(function (n) {
     lines.push({ name: n, qty: null, unit: '', price: null, subtotal: null, issue: '報價表查無此品項' });
   });
+  // 金額四捨五入到小數 2 位（避免電腦小數誤差）；營業稅取整數元
   const subtotal = Math.round(lines.reduce(function (s, l) { return s + (l.subtotal || 0); }, 0) * 100) / 100;
   const tax = Math.round(subtotal * TAX_RATE);
   return {
@@ -411,6 +426,7 @@ function money_(n) {
   return 'NT$' + fmtNum_(n);
 }
 
+/** 信末的報價明細（純文字）：每個數字都來自 buildQuote_（報價表）；缺價格或數量就標【需人工確認】，合計寫「未完成」 */
 function quoteText_(q) {
   const rows = q.lines.map(function (l) {
     return '・' + l.name + '　' + (l.qty === null ? '數量待確認' : l.qty + ' ' + l.unit) +
@@ -428,6 +444,7 @@ function quoteText_(q) {
     ]).filter(function (s) { return s !== ''; }).join('\n');
 }
 
+/** 報價單草稿 .md（存進 FinLab-Vault/秘書）；狀態固定寫「待確認」，確認後由你自己改 */
 function buildQuoteMarkdown_(isoDate, triage, q, subject, permalink) {
   const rows = q.lines.map(function (l) {
     return '| ' + l.name + ' | ' + (l.qty === null ? '待確認' : l.qty) + ' | ' + l.unit + ' | ' +
@@ -465,6 +482,7 @@ function buildQuoteMarkdown_(isoDate, triage, q, subject, permalink) {
 }
 
 // ============ 秘書紀錄與今日總覽 ============
+/** 「秘書紀錄」分頁加一列；寫不進去只記警告，不影響已建立的草稿 */
 function logSecretary_(row) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -490,18 +508,21 @@ function getSecretaryStatus_() {
   const drafts = GmailApp.getDrafts()
     .map(function (d) { return d.getMessage(); })
     .filter(function (m) { return m.getPlainBody().indexOf(DRAFT_MARK) === 0; })
+    // 總覽最多列 10 封，信才不會太長
     .slice(0, 10)
     .map(function (m) {
       return { subject: m.getSubject(), checks: (m.getPlainBody().match(/【需人工確認/g) || []).length };
     });
 
   const fail = GmailApp.getUserLabelByName(SECRETARY_FAIL_LABEL);
+  // 最多數 50 串（Gmail 一次讀太多會變慢）
   const failedCount = fail ? fail.getThreads(0, 50).length : 0;
 
   const recent = [];
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SECRETARY_LOG_SHEET);
   if (sheet && sheet.getLastRow() > 1) {
     const since = Date.now() - 24 * 60 * 60 * 1000;
+    // 只讀前 7 欄（處理時間～狀態）；狀態是「失敗」或「略過」的不算「已處理」
     sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues().forEach(function (r) {
       if (r[0] instanceof Date && r[0].getTime() >= since && String(r[6]).indexOf('失敗') !== 0 && String(r[6]).indexOf('略過') !== 0) {
         recent.push({ customer: r[1], intent: r[2], subject: r[3], total: r[4] });
@@ -512,6 +533,7 @@ function getSecretaryStatus_() {
 }
 
 // ============ 小工具 ============
+/** 找 Gmail 標籤，沒有就建立 */
 function getOrCreateLabel_(name) {
   return GmailApp.getUserLabelByName(name) || GmailApp.createLabel(name);
 }

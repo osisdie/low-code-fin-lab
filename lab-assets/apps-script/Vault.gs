@@ -13,6 +13,7 @@
  * STARTER_FILES 與 lab-assets/obsidian-vault/ 裡的同名檔案內容一致；修改請兩邊一起改。
  */
 
+// 第一次建立時用的資料夾名稱；之後靠指令碼屬性 VAULT_ROOT_ID 記住的資料夾 ID 找回來（你改了資料夾名稱也找得到）
 const VAULT_ROOT_NAME = 'FinLab-Vault';
 const VAULT_SYMBOL_FOLDER_DEFAULT = '標的';
 const VAULT_SYMBOL_FOLDER_PROP = 'VAULT_SYMBOL_FOLDER';
@@ -30,6 +31,7 @@ function symbolWikiLink_(it) {
   return '[[' + vaultSymbolFolder_() + '/' + it.key + '\\|' + it.name + ']]';
 }
 
+// 起始檔案清單：path 是相對於 FinLab-Vault 的路徑（可含子資料夾），content 是檔案內容；只在檔案不存在時建立
 const STARTER_FILES = [
   {
     path: '首頁.md',
@@ -150,6 +152,7 @@ function setupVault_() {
     const parts = f.path.split('/');
     const fileName = parts.pop();
     const folder = parts.reduce(getSubFolder_, root);
+    // 安全：同名檔案已經存在就跳過，不會覆蓋你改過的內容
     if (!folder.getFilesByName(fileName).hasNext()) folder.createFile(fileName, f.content, 'text/plain');
   });
   const symbolDir = getSubFolder_(root, symbolFolder);
@@ -168,6 +171,7 @@ function setupVault_() {
 
 /** 把內容寫進 FinLab-Vault/<subFolder>/<fileName>；同名檔已存在就覆寫（同一天重跑不會重複） */
 function writeVaultFile_(subFolder, fileName, content) {
+  // 一定從 FinLab-Vault 根資料夾往下找，不會寫到雲端硬碟的其他地方
   const folder = getSubFolder_(getVaultRoot_(), subFolder);
   const existing = folder.getFilesByName(fileName);
   if (existing.hasNext()) existing.next().setContent(content);
@@ -191,6 +195,7 @@ function getVaultRoot_() {
   return root;
 }
 
+/** 在 parent 底下找同名子資料夾，沒有才建立（重跑不會多建一個同名資料夾） */
 function getSubFolder_(parent, name) {
   const it = parent.getFoldersByName(name);
   return it.hasNext() ? it.next() : parent.createFolder(name);

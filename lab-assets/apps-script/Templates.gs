@@ -8,6 +8,7 @@
  * 想自己做第四種版面：在 REPORT_TEMPLATES 加一項，並在 renderBriefing_ 對應一個 xxxHtml_ 函式。
  */
 
+// 沒選過版面時用「完整」。REPORT_TEMPLATES 的 key（compact／full／table）就是存進指令碼屬性 REPORT_TEMPLATE 的值
 const DEFAULT_TEMPLATE = 'full';
 const REPORT_TEMPLATES = {
   compact: { name: '精簡', desc: '手機一眼看完：變動最大的 3 項＋秘書待辦數量' },
@@ -17,6 +18,7 @@ const REPORT_TEMPLATES = {
 
 const UP_COLOR = '#c8341e';   // 台灣習慣：紅漲綠跌
 const DOWN_COLOR = '#1f8a4c';
+// 灰色：說明文字；淺米色：分隔線與表格框線
 const MUTED_COLOR = '#6b6a60';
 const LINE_COLOR = '#e3ddcc';
 
@@ -104,6 +106,10 @@ function tableHtml_(ctx) {
 
 // ============ 共用 ============
 
+/**
+ * 信件外框：標題、日期、版面內容、頁尾。
+ * 頁尾的「僅供參考，不構成投資建議」「AI 草稿一律不會自動寄出」寫在這裡，三種版面都會有。
+ */
 function wrapHtml_(ctx, inner) {
   return '<div style="background:#faf7f0;padding:16px 12px;font-family:\'Noto Sans TC\',\'PingFang TC\',\'Microsoft JhengHei\',sans-serif;color:#20211c">' +
     '<div style="max-width:640px;margin:0 auto;background:#fff;border:1px solid ' + LINE_COLOR + ';border-radius:10px;padding:20px 22px">' +
@@ -114,9 +120,11 @@ function wrapHtml_(ctx, inner) {
     '<div style="margin-top:22px;padding-top:12px;border-top:1px solid ' + LINE_COLOR + ';font-size:12px;color:' + MUTED_COLOR + ';line-height:1.7">' +
     '數字來自 Google Finance、CoinGecko、Yahoo Finance 與你的報價表；AI 只整理文字。僅供參考，不構成投資建議。<br>' +
     'AI 草稿一律不會自動寄出。' + (ctx.sheetUrl ? '　<a href="' + esc_(ctx.sheetUrl) + '" style="color:' + UP_COLOR + '">打開試算表看「日報紀錄」「秘書紀錄」</a>' : '') +
+    (ctx.updatedAt ? '<br>資料更新時間：' + esc_(ctx.updatedAt) + '（台灣時間）' : '') +
     '</div></div></div>';
 }
 
+/** 純文字版的整封信（收信軟體不顯示 HTML 時看這個）；一樣有原始數據與免責聲明 */
 function briefingText_(ctx) {
   return [
     '📰 今日總覽 ' + ctx.dateStr,
@@ -130,6 +138,7 @@ function briefingText_(ctx) {
     rawTable_(ctx.data),
     '',
     '僅供參考，不構成投資建議。AI 草稿一律不會自動寄出。',
+    ctx.updatedAt ? '資料更新時間：' + ctx.updatedAt + '（台灣時間）' : '',
   ].join('\n');
 }
 
@@ -139,10 +148,15 @@ function mdLineHtml_(line) {
   return '<div style="padding-left:' + (/^\s/.test(line) ? 18 : 0) + 'px">' + esc_(text) + '</div>';
 }
 
+/** 段落小標題（底下一條紅線） */
 function h2_(title) {
   return '<div style="font-size:16px;font-weight:700;margin:22px 0 8px;padding-bottom:4px;border-bottom:2px solid ' + UP_COLOR + '">' + esc_(title) + '</div>';
 }
 
+/**
+ * 簡單表格：head 是標題列，rows 是每一列的儲存格，alignRight 決定每欄靠右（數字）或靠左（文字）。
+ * 注意：rows 裡的文字要先經過 esc_ 或 fmtNum_ 處理，這裡不再跳脫。
+ */
 function table_(head, rows, alignRight) {
   const cell = function (v, i, tag) {
     return '<' + tag + ' style="border:1px solid ' + LINE_COLOR + ';padding:6px 8px;font-size:14px;text-align:' + (alignRight[i] ? 'right' : 'left') +
@@ -154,15 +168,18 @@ function table_(head, rows, alignRight) {
     '</table>';
 }
 
+/** 精簡版的大數字格子：0 用灰色，大於 0 用紅色提醒 */
 function bigNumber_(n, label) {
   return '<td style="padding:8px 4px"><div style="font-size:28px;font-weight:700;color:' + (n ? UP_COLOR : MUTED_COLOR) + '">' + n + '</div>' +
     '<div style="font-size:12px;color:' + MUTED_COLOR + '">' + esc_(label) + '</div></td>';
 }
 
+/** 還沒用秘書（或讀不到秘書待辦）時顯示的一行 */
 function secretaryOff_() {
   return '<p style="font-size:14px;color:' + MUTED_COLOR + '">秘書尚未啟用（Stage 4 會設定）。</p>';
 }
 
+/** 漲跌幅 → ▲ +1.23%（紅）／▼ -0.45%（綠）；查無資料就留空 */
 function pctHtml_(pct) {
   if (pct === null || pct === undefined) return '';
   const up = pct >= 0;
@@ -182,12 +199,17 @@ function shortName_(name) {
   return String(name).replace(/[（(].*?[）)]/g, '').trim();
 }
 
+/** 數字加千分位逗號：120000 → 120,000（只改顯示，不改數值）；不是數字就跳脫後原樣顯示 */
 function fmtNum_(v) {
   if (typeof v !== 'number') return esc_(v);
   const parts = String(v).split('.');
   return parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (parts[1] ? '.' + parts[1] : '');
 }
 
+/**
+ * 安全：把 & < > " 換成 HTML 安全的寫法。AI 摘要、信件主旨、客戶名稱都是外來的文字，
+ * 放進信件 HTML 前一律經過這裡，才不會被當成 HTML 執行或弄亂版面。
+ */
 function esc_(s) {
   return String(s === null || s === undefined ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

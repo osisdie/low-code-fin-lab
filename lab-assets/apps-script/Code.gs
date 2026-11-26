@@ -1208,7 +1208,7 @@ function secretaryNoteLinks_(sec) {
   if (!withNote.length) return ['- 全部還沒處理完的信：[[秘書總覽.base|秘書總覽]]（「待我處理」）'];
   const lines = ['- 秘書紀錄（點開看摘要與下一步）：'];
   withNote.forEach(function (r) {
-    lines.push('  - [[秘書/' + r.note + '|' + r.intent + '｜' + r.customer + ']]（' + r.status + '）' +
+    lines.push('  - [[秘書/' + r.note + '|' + mdCell_(r.intent + '｜' + r.customer) + ']]（' + r.status + '）' +
       (r.quote ? '｜報價單：[[秘書/' + r.quote + '|草稿]]' : ''));
   });
   lines.push('- 全部還沒處理完的信：[[秘書總覽.base|秘書總覽]]（「待我處理」）');
@@ -1218,17 +1218,17 @@ function secretaryNoteLinks_(sec) {
 /** 秘書待辦 → Markdown 清單（日報 .md、「完整」版信件與純文字信共用） */
 function secretaryMarkdown_(sec) {
   const lines = ['- 待確認草稿：' + sec.drafts.length + ' 封（在 Gmail「草稿」）'];
-  sec.drafts.forEach(function (d) { lines.push('  - [ ] ' + d.subject + (d.checks ? '（' + d.checks + ' 處需人工確認）' : '')); });
+  sec.drafts.forEach(function (d) { lines.push('  - [ ] ' + mdInline_(d.subject) + (d.checks ? '（' + d.checks + ' 處需人工確認）' : '')); });
   lines.push('- 需人工處理的信：' + sec.failedCount + ' 封（Gmail 標籤「AI秘書/需人工」）');
   lines.push('- 過去 24 小時處理：' + sec.recent.length + ' 封');
   sec.recent.forEach(function (r) {
-    lines.push('  - ' + r.intent + '｜' + r.customer + '｜' + r.subject + (r.total === '' ? '' : '｜報價合計 ' + r.total));
+    lines.push('  - ' + r.intent + '｜' + mdInline_(r.customer) + '｜' + mdInline_(r.subject) + (r.total === '' ? '' : '｜報價合計 ' + r.total));
   });
   // 沒有建立草稿的信（推銷「略過」、感謝「不需回覆」）也列出來：程式是依關鍵字判斷的，可能看錯，請掃一眼
   const quiet = sec.quiet || [];
   if (quiet.length) {
     lines.push('- 略過／不需回覆：' + quiet.length + ' 封，請掃一眼（程式依關鍵字判斷，可能看錯）');
-    quiet.forEach(function (r) { lines.push('  - ' + r.status + '｜' + r.customer + '｜' + r.subject); });
+    quiet.forEach(function (r) { lines.push('  - ' + r.status + '｜' + mdInline_(r.customer) + '｜' + mdInline_(r.subject)); });
   }
   return lines;
 }

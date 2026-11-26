@@ -100,6 +100,9 @@ const SECRETARY_RESERVE_MS = 90000;      // 回頭檢查舊紀錄時，至少留
 // 開始下一封之前先估：已用時間 + max(90 秒, 這一輪平均每封 × 1.3) 超過 330 秒就停（Apps Script 360 秒會被強制中斷）
 const SECRETARY_THREAD_ESTIMATE_MS = 90000; // 這一輪還沒處理過任何一封時，預估一封要這麼久
 const SECRETARY_RUN_SAFE_MS = 330000;       // 預估做完下一封會超過這個時間，就不開始
+// 一次 AI 呼叫偶爾會卡好幾分鐘（實測一次回覆草稿卡了約 5 分鐘）：
+const SECRETARY_REPLY_START_LIMIT_MS = 250000; // 這一輪已經過了 250 秒，就不開始寫回覆草稿，這封信留到下次（標籤不動）
+const SECRETARY_AI_DEADLINE_MS = 300000;       // 這一輪過了 300 秒，AI 失敗就不再試備用模型
 const REFRESH_CURSOR_PROP = 'SECRETARY_REFRESH_CURSOR'; // 程式自動寫入：下次從第幾筆還沒結案的紀錄接著檢查（輪流，舊的不會一直排不到）
 const NEXT_STEP_HEADING = '## 下一步（你要做的事）';
 // 「秘書紀錄」分頁的欄位（與知識庫筆記的 frontmatter 對應）；舊表缺的欄位會自動加在最右邊
@@ -262,12 +265,12 @@ function processSecretaryMail() {
   for (let i = 0; i < threads.length; i++) {
     if (secretaryTimeUp_(started) || secretaryNextTooLong_(Date.now() - started, spent)) {
       // 時間不夠：剩下的信「AI秘書」標籤不動，下次執行再處理
-      result.deferred = threads.length - i;
-      console.warn('秘書：時間快用完，' + result.deferred + ' 封信留到下次處理（「' + SECRETARY_LABEL + '」標籤沒動）');
+      result.deferred += threads.length - i; // 加上前面因為時間不夠留下的
+      console.warn('秘書：時間快用完，' + (threads.length - i) + ' 封信留到下次處理（「' + SECRETARY_LABEL + '」標籤沒動）');
       break;
     }
     const t0 = Date.now();
-    processSecretaryThread_(threads[i], labels, priceList.map, result);
+    processSecretaryThread_(threads[i], labels, priceList.map, result, started);
     spent.push(Date.now() - t0);
   }
   return result;
@@ -291,8 +294,10 @@ function secretaryTimeUp_(started) {
  * 處理一串信（processSecretaryMail 的迴圈每次呼叫一次）。任何錯誤都在這裡接住：貼「需人工」、留一筆失敗紀錄。
  * 順序：判讀 → 報價單 → 建草稿 → 寫紀錄 → 換標籤。萬一在「建草稿」之後中斷，下次會補寫紀錄（見 recoverSecretaryRecord_）。
  */
-function processSecretaryThread_(thread, labels, prices, result) {
+function processSecretaryThread_(thread, labels, prices, result, started) {
   let msg = null;
+  const runStart = started || Date.now();
+  const deadline = runStart + SECRETARY_AI_DEADLINE_MS;
   try {
     // 重跑時不重複建立：這串信已經有 AI 草稿（開頭有標記，或「秘書紀錄」記下的草稿ID 還在）
     if (hasAiDraft_(thread) || recordDraftAlive_(thread)) {
@@ -335,7 +340,7 @@ function processSecretaryThread_(thread, labels, prices, result) {
       }
       followup = true;
     }
-    const triage = triageEmail_(msg, prices);
+    const triage = triageEmail_(msg, prices, deadline);
     triage.customer = canonicalCustomer_(triage.customer); // 同一位客戶只用一個名字
     const rec = newSecretaryRecord_(thread, msg, triage, prices);
     if (followup) {
@@ -366,7 +371,9 @@ function processSecretaryThread_(thread, labels, prices, result) {
     if (triage.intent === '詢價' && !quote) triage.needs_human.push(NO_QUOTE_CHECK);
     triage.hasQuote = !!quote; // 回覆提示詞依這個決定要不要寫「報價明細請見信末」
 
-    const reply = flagAmounts_(stripQuoteMentions_(fixEmptyChecks_(draftReply_(triage), triage.needs_human), triage.hasQuote, triage.intent));
+    // 時間不夠就不開始寫回覆（這次 AI 呼叫可能很久）：什麼都還沒寫，信留著標籤，下次從頭處理
+    if (Date.now() - runStart > SECRETARY_REPLY_START_LIMIT_MS) throw outOfTimeError_('時間不夠，沒有開始寫回覆草稿');
+    const reply = flagAmounts_(stripQuoteMentions_(fixEmptyChecks_(draftReply_(triage, deadline), triage.needs_human), triage.hasQuote, triage.intent));
     const refund = flagRefundPromise_(reply.text);
     const promise = flagPromises_(refund.text);
     const claim = flagClaims_(promise.text);
@@ -414,6 +421,12 @@ function processSecretaryThread_(thread, labels, prices, result) {
     addIntentLabel_(thread, triage.intent);
     if (human) thread.addLabel(labels.fail);
   } catch (err) {
+    if (err && err.outOfTime) {
+      // 時間不夠（不是信的問題）：標籤不動、不寫紀錄、不建草稿，下次執行從頭處理這封
+      result.deferred++;
+      console.warn('秘書：' + err.message + '，「' + thread.getFirstMessageSubject() + '」留到下次處理');
+      return;
+    }
     logError_('秘書：' + thread.getFirstMessageSubject(), err);
     thread.removeLabel(labels.inbox).addLabel(labels.fail);
     result.failed++;
@@ -487,7 +500,14 @@ function hasAiDraft_(thread) {
  * 請 AI 判讀一封信，回傳 { intent, customer, summary, items, unmatched, deadline, needs_human, tone }。
  * 只送「品項名稱」給 AI，不送單價；信件內文只送前 MAX_BODY_CHARS 個字。
  */
-function triageEmail_(msg, prices) {
+/** 「時間不夠」的錯誤：呼叫端看到 err.outOfTime 就把信留到下次，不當成處理失敗 */
+function outOfTimeError_(message) {
+  const err = new Error(message);
+  err.outOfTime = true;
+  return err;
+}
+
+function triageEmail_(msg, prices, deadline) {
   const names = Object.keys(prices).map(function (k) { return '- ' + prices[k].name; }).join('\n') || '（報價表是空的）';
   // 寄件人只給顯示名稱、不給信箱（少送一點個資給免費模型；客戶名稱也要從內文找）
   const from = senderName_(msg.getFrom());
@@ -499,7 +519,7 @@ function triageEmail_(msg, prices) {
     .replace('{from}', function () { return from; })
     .replace('{subject}', function () { return subject; })
     .replace('{body}', function () { return body; });
-  const t = parseJson_(callAi_(prompt, { json: true }));
+  const t = parseJson_(callAi_(prompt, { json: true, maxTokens: AI_MAX_TOKENS.triage, deadline: deadline }));
   t.items = Array.isArray(t.items) ? t.items : [];
   t.unmatched = Array.isArray(t.unmatched) ? t.unmatched : [];
   t.needs_human = Array.isArray(t.needs_human) ? t.needs_human : [];
@@ -557,9 +577,9 @@ function normalizeTriage_(t, subject, body) {
 }
 
 /** 依判讀結果請 AI 寫回覆內文（REPLY_PROMPT 禁止寫金額與承諾）；報價明細之後由系統附在信末 */
-function draftReply_(triage) {
+function draftReply_(triage, deadline) {
   const json = JSON.stringify(triage, null, 2);
-  return callAi_(REPLY_PROMPT.replace('{triage_json}', function () { return json; })).trim();
+  return callAi_(REPLY_PROMPT.replace('{triage_json}', function () { return json; }), { maxTokens: AI_MAX_TOKENS.reply, deadline: deadline }).trim();
 }
 
 /**

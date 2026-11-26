@@ -48,11 +48,12 @@ lab-assets/
 slides/
   handbook.html                       上課主檔：報紙格式滾動手冊（全場 5 段）
   obsidian.html                       特別報導：Markdown 知識庫與 Obsidian（為什麼不被軟體綁住）
+  journey-map.html                    學員路線圖網頁版（與 student-journey-map.md 同內容，圖已內嵌、離線可看）
 ```
 
 ## 快速開始
 
-**給學員**：覺得路很長？先看 [一張圖看懂全程](docs/student/student-journey-map.md)。接著照順序讀 `docs/student/student-stage-0-concepts.md` → `stage-1` → `stage-2` → `stage-3-obsidian` → `stage-4-secretary`。上課主檔是 [`slides/handbook.html`](slides/handbook.html)。
+**給學員**：覺得路很長？先看 [一張圖看懂全程](docs/student/student-journey-map.md)（[網頁版](slides/journey-map.html)）。接著照順序讀 `docs/student/student-stage-0-concepts.md` → `stage-1` → `stage-2` → `stage-3-obsidian` → `stage-4-secretary`。上課主檔是 [`slides/handbook.html`](slides/handbook.html)。
 
 **給講師**：
 1. 講師教案（時間表、口白稿、彩排 checklist）的去敏範本 `docs/instructor-template/` 預計**開課後公開**；在那之前只放在講師本機。

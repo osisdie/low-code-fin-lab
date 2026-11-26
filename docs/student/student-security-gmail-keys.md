@@ -35,7 +35,8 @@
 - 用「① 一鍵設定」貼上，它會存進指令碼屬性；不要寫在 `Code.gs` 或表格儲存格。
 - 拿到 Sheet **編輯權**的人看得到指令碼屬性，所以分享只給「檢視」權限，或乾脆不分享。
 - 截圖前先檢查有沒有露出 key。
-- 外洩或不確定時：到 [OpenRouter Keys 頁面](https://openrouter.ai/settings/keys) 刪除並重建，再跑一次「① 一鍵設定」換新 key。
+- 外洩或不確定時：到 [OpenRouter Keys 頁面](https://openrouter.ai/settings/keys) 刪除並重建，再跑一次「① 一鍵設定」換新 key。Gemini key（`AIza` 開頭）一樣處理，到 [AI Studio](https://aistudio.google.com/apikey) 刪除重建。
+- 講師現場給的臨時金鑰：只貼進自己的 ①，不要轉傳、拍照或貼到群組；下課後就會失效。
 
 ### 4. 客戶信件與免費 AI
 - **AI 摘要與秘書的內容會經過 OpenRouter 送到免費模型的提供者，部分提供者可能保留或用輸入資料訓練模型**（依各提供者條款，以官網為準，查證日期 2026-11-24：[Provider Logging](https://openrouter.ai/docs/guides/privacy/provider-logging)）。OpenRouter 本身預設不儲存提示內容（[Data Collection](https://openrouter.ai/docs/guides/privacy/data-collection)）。

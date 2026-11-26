@@ -1,6 +1,6 @@
 # Apps Script：每日財經報告＋商務秘書
 
-一份 Google Sheet 就是整個「AI 助理」：每天早上寄一封「今日總覽」（財經數字＋秘書待辦，版面任選）、每天記一列「日報紀錄」、把日報存進 Obsidian 知識庫，並幫你把客戶來信變成回覆草稿與報價單草稿。**全部免費，只需要一個 Google 帳號。** AI 摘要再加一把免費的 OpenRouter key（不用綁卡）；沒有 key、或把指令碼屬性 `AI_ENABLED` 設為 `false` 時，每日總覽仍會寄出原始數據，只是不會呼叫 AI。
+一份 Google Sheet 就是整個「AI 助理」：每天早上寄一封「今日總覽」（財經數字＋秘書待辦，版面任選）、每天記一列「日報紀錄」、把日報存進 Obsidian 知識庫，並幫你把客戶來信變成回覆草稿與報價單草稿。**全部免費，只需要一個 Google 帳號。** AI 摘要再加一把免費的 OpenRouter key（不用綁卡）；（OpenRouter 塞車時，也可以改貼免費的 Gemini key，見「[AI 服務：OpenRouter、Gemini、OpenAI](#ai-服務openroutergeminiopenai)」。）沒有 key、或把指令碼屬性 `AI_ENABLED` 設為 `false` 時，每日總覽仍會寄出原始數據，只是不會呼叫 AI。
 
 | 檔案 | 做什麼 |
 |---|---|
@@ -37,7 +37,7 @@
 3. 左側 **專案設定（齒輪）→ 勾選「在編輯器中顯示『appsscript.json』資訊清單檔案」**，把內容換成本資料夾的 `appsscript.json`。
 4. 存檔，回到 Sheet 重新整理，之後就跟路線一的第 3 步一樣。
 
-> 想手動設定也可以：**專案設定 → 指令碼屬性**，新增 `OPENROUTER_API_KEY`。（選填）`AI_ENABLED` 設為 `false`（也接受 `off`／`0`／`no`）會關閉 AI 摘要，即使已經有 key 也不會呼叫 OpenRouter；每日總覽改寫「AI 摘要已關閉，以下為原始數據。」，秘書選單 ⑤⑥ 會跳出說明而不是失敗。不設這個屬性時：有 key 就開啟，沒有就關閉。（選填）`VAULT_SYMBOL_FOLDER` 是知識庫裡追蹤項目筆記的資料夾名稱，預設「標的」（股票、匯率、加密貨幣都放這裡）；改名後再跑一次「① 一鍵設定」會建立新資料夾，請自行把舊筆記移過去。若 vault 根目錄裡已經有舊連結（例如 `[[USD_TWD]]`）建出來的標的筆記，請自行移到 `標的/`（或你設定的 `VAULT_SYMBOL_FOLDER`）。（選填）`REPORT_TO` 是收件信箱，不填就寄給自己；（選填）`OPENROUTER_MODEL`／`OPENROUTER_SECONDARY_MODEL`／`OPENROUTER_FALLBACK_MODEL` 是主要／第二／最後備用模型，不填就用 `Code.gs` 最上方 `AI_MODEL_PRIMARY`／`AI_MODEL_SECONDARY`／`AI_MODEL_FALLBACK` 的預設值；`REPORT_TEMPLATE` 是版面（`compact`／`full`／`table`），用選單選比較方便。（選填）`REPORT_HOUR` 是每天幾點寄（0～23 的整數，台灣時間，例如 `6`），不填或填錯就用預設 7 點（`Code.gs` 的 `TRIGGER_HOUR`）；**改完要再點一次「③」才會換時間**，選單上的時間要重新整理試算表才會跟著變。建議設在早上 6～11 點（美股前一晚已收盤）：設在晚上 10 點到清晨 5 點，美股可能還在交易，數字會是盤中的；中午到晚上，「美股休市」的說明可能不準。
+> 想手動設定也可以：**專案設定 → 指令碼屬性**，新增 `AI_API_KEY`（舊名稱 `OPENROUTER_API_KEY` 也認得）。（選填）`AI_ENABLED` 設為 `false`（也接受 `off`／`0`／`no`）會關閉 AI 摘要，即使已經有 key 也不會呼叫 OpenRouter；每日總覽改寫「AI 摘要已關閉，以下為原始數據。」，秘書選單 ⑤⑥ 會跳出說明而不是失敗。不設這個屬性時：有 key 就開啟，沒有就關閉。（選填）`VAULT_SYMBOL_FOLDER` 是知識庫裡追蹤項目筆記的資料夾名稱，預設「標的」（股票、匯率、加密貨幣都放這裡）；改名後再跑一次「① 一鍵設定」會建立新資料夾，請自行把舊筆記移過去。若 vault 根目錄裡已經有舊連結（例如 `[[USD_TWD]]`）建出來的標的筆記，請自行移到 `標的/`（或你設定的 `VAULT_SYMBOL_FOLDER`）。（選填）`REPORT_TO` 是收件信箱，不填就寄給自己；（選填）`AI_MODEL`／`AI_FALLBACK_MODEL` 是主要／最後備用模型（OpenRouter 另有 `OPENROUTER_SECONDARY_MODEL`；舊名稱 `OPENROUTER_MODEL`／`OPENROUTER_FALLBACK_MODEL` 也認得），不填就用 `Code.gs` 最上方的預設值；（選填）`AI_PROVIDER`、`AI_BASE_URL` 見「AI 服務」一節；`REPORT_TEMPLATE` 是版面（`compact`／`full`／`table`），用選單選比較方便。（選填）`REPORT_HOUR` 是每天幾點寄（0～23 的整數，台灣時間，例如 `6`），不填或填錯就用預設 7 點（`Code.gs` 的 `TRIGGER_HOUR`）；**改完要再點一次「③」才會換時間**，選單上的時間要重新整理試算表才會跟著變。建議設在早上 6～11 點（美股前一晚已收盤）：設在晚上 10 點到清晨 5 點，美股可能還在交易，數字會是盤中的；中午到晚上，「美股休市」的說明可能不準。
 
 ## 取得 OpenRouter key（免費，不用綁卡）
 
@@ -63,6 +63,22 @@
 - 免費模型名單：[openrouter.ai/models?max_price=0](https://openrouter.ai/models?max_price=0)；`openrouter/free` 說明：[Free Models Router](https://openrouter.ai/docs/guides/routing/routers/free-router)。
 - 如果出現「找不到可用的模型（404）」，可能是你在 OpenRouter [隱私設定](https://openrouter.ai/settings/privacy) 排除了會保留資料的提供者，導致沒有免費模型可用；調整設定或改用別的免費模型即可。
 
+## AI 服務：OpenRouter、Gemini、OpenAI
+
+「① 一鍵設定」貼什麼 key，程式就用哪一家（看 key 的開頭自動判斷），對話框會寫出「AI 服務：…」。要換回來，再點一次 ① 貼另一把 key；留空會問你要沿用舊 key，還是刪掉它、關閉 AI 摘要。
+
+| 服務 | key 開頭 | 費用 | 預設模型（主要 → 備用） | 誰用 |
+|---|---|---|---|---|
+| OpenRouter | `sk-or-` | 免費模型，不用綁卡 | 見下方「已知限制」 | 課堂主線 |
+| Gemini（Google AI Studio） | `AIza` | 有免費額度（以官網為準，查證日期 2026-11-26：[Pricing](https://ai.google.dev/gemini-api/docs/pricing)） | `gemini-3.5-flash-lite` → `gemini-3.5-flash` | OpenRouter 塞車時，學員自己的免費備案 |
+| OpenAI | 其他 `sk-`（例如 `sk-proj-`） | **付費** | `gpt-4.1-mini` → `gpt-4o-mini` | 講師的緊急備案 |
+
+- **取得 Gemini key**：用 Google 帳號打開 [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → **Create API key** → 複製（`AIza` 開頭）→ 貼進「① 一鍵設定」。免費方案的輸入可能被 Google 用來改善產品（以官網為準），一樣只用虛構信件練習。2026-11-26 實測：秘書判讀＋回覆一封信各 1～2 秒內完成、回覆是繁體中文。
+- **OpenAI key 要付費，用量記在建立 key 的帳號**：絕不分享、不貼進聊天室或文件；請在 OpenAI 後台幫這把 key 所屬的專案設定用量上限（budget），用完就撤銷（revoke）。講師現場提供的臨時 key，下課後就會失效：再點一次 ① 貼回自己的 OpenRouter／Gemini key，或留空並選「否」關閉 AI。
+- 三家都用同一種「chat completions」請求，但欄位不同：OpenRouter 帶 `provider`、`reasoning`；Gemini 帶 `reasoning_effort`（Gemini 3 以後的模型不能完全關掉思考，用最低的 `minimal`）；OpenAI 兩者都不帶（OpenAI 遇到不認得的欄位會回 400），gpt-5 系列改用 `max_completion_tokens`。
+- 都失敗時的處理一樣：429（額度或忙碌）先換備用模型，都失敗才寄原始數據／貼「AI秘書/需人工」；key 無效不重試。
+- 進階覆寫（指令碼屬性）：`AI_PROVIDER`（`openrouter`／`gemini`／`openai`，不想依開頭判斷時）、`AI_BASE_URL`（換成相容 OpenAI 格式的其他網址，寫到 `/v1` 即可）、`AI_MODEL`、`AI_FALLBACK_MODEL`。在 ① 貼新 key 時，`AI_PROVIDER`、`AI_BASE_URL` 會被清掉，改回自動判斷。
+
 ## 出錯了怎麼辦？
 
 選單功能出錯時會跳出中文說明，同時在試算表多一個 **錯誤紀錄** 分頁（時間、在做什麼、錯誤訊息）。需要協助時，把那一列給講師看就好，不用打開程式編輯器。
@@ -75,14 +91,14 @@
 | 以你的名義傳送電子郵件 | 寄日報給你自己（MailApp） |
 | 讀取、撰寫、傳送及永久刪除 Gmail 郵件 | 秘書讀「AI秘書」標籤的信、換標籤、建立草稿。Apps Script 的 Gmail 功能（GmailApp）需要這個權限；**本程式不會寄出或刪除任何客戶信件**，原始碼就在 `Secretary.gs` 可以檢查 |
 | 查看、編輯、建立及刪除你所有的 Google 雲端硬碟檔案 | 建立 `FinLab-Vault`、寫入日報與報價單。Apps Script 的雲端硬碟功能（DriveApp）建立資料夾與檔案一定要這個權限，沒辦法只要「本程式建立的檔案」；**本程式只會讀寫 `FinLab-Vault` 裡的檔案**，原始碼就在 `Vault.gs` 可以檢查 |
-| 連線到外部服務 | 呼叫 OpenRouter（AI 摘要）、CoinGecko、Yahoo Finance |
+| 連線到外部服務 | 呼叫 AI 服務（OpenRouter，或你貼的 Gemini／OpenAI key）、CoinGecko、Yahoo Finance |
 | 在試算表中顯示提示與選單、管理觸發條件 | 一鍵設定的對話框、每天自動執行 |
 
 不想用了：到 [Google 帳戶 → 安全性 → 第三方存取](https://myaccount.google.com/permissions) 移除這個專案的存取權，再刪掉這份 Sheet。
 
 ## 安全提醒
 - 寄信與讀信都用你自己的 Google 帳號**授權**，**不需要、也不要輸入 Gmail 密碼**。
-- key 只放在「指令碼屬性」（一鍵設定會幫你存）；不要貼進程式碼、表格、聊天室或截圖。key 外洩請到 [OpenRouter Keys 頁面](https://openrouter.ai/settings/keys) 刪除重建。
+- key 只放在「指令碼屬性」（一鍵設定會幫你存）；不要貼進程式碼、表格、聊天室或截圖。key 外洩請到 [OpenRouter Keys 頁面](https://openrouter.ai/settings/keys)（Gemini：[AI Studio](https://aistudio.google.com/apikey)；OpenAI：[API keys](https://platform.openai.com/api-keys)）刪除重建。**OpenAI key 是付費的**，外洩會直接花到錢，務必設用量上限。
 - 分享這份 Sheet 前要知道：拿到**編輯權**的人可以看到 Apps Script 與指令碼屬性。只分享「檢視」權限，或乾脆不分享。
 - **信件與數據會經過 OpenRouter 送到免費模型的提供者，部分提供者可能保留或用輸入資料訓練模型**（依各提供者條款，以官網為準：[Provider Logging](https://openrouter.ai/docs/guides/privacy/provider-logging)）。OpenRouter 本身預設不儲存提示內容（[Data Collection](https://openrouter.ai/docs/guides/privacy/data-collection)）。秘書功能請用虛構信件練習；真實客戶信件與報價請改用付費且不訓練的方案，或保留人工處理。
 
@@ -95,7 +111,7 @@
 - 秘書紀錄的狀態更新：每次最多 20 筆還沒結案的紀錄（`REFRESH_MAX_PER_RUN`）、最多 120 秒（`REFRESH_TIME_BUDGET_MS`），輪流檢查（指令碼屬性 `SECRETARY_REFRESH_CURSOR` 記住上次停在哪，程式自動寫入）。認草稿用「草稿ID」，使用者刪掉草稿開頭的標記也認得；舊版「秘書紀錄」分頁的列沒有「信件ID」，不會被更新。
 - 寫進「秘書紀錄」的文字若以 `=`、`+`、`-`、`@`（或 tab、換行）開頭，前面會加 `'`，試算表不會把它當成公式。同一封信更新同一列時，只一格一格寫程式的欄位，你自己加的欄位（公式、「00123」這種文字）不會被動到。
 - 秘書每次執行最多處理 5 封（`MAX_THREADS_PER_RUN`）；實測免費模型一封約 40～75 秒（寫草稿要 2 次 AI），5 封一輪約 4 分鐘。開始下一封前會估時間：已用時間 + max(90 秒, 這一輪平均每封 × 1.3) 超過 330 秒就不開始（`secretaryNextTooLong_`），
-- AI 呼叫都帶 `max_tokens`（`AI_MAX_TOKENS`：摘要 6000、判讀與回覆 4000，遠大於實際輸出）、`reasoning: { effort: 'none' }`（關掉思考）與 `provider: { sort: 'latency' }`（優先回應快的提供者）。推理模型的思考也算在 max_tokens 裡：實測上限 800 時，openrouter/free 挑到的推理模型把額度用在思考、回覆空白（finish_reason: length）。現在遇到「回覆空白＋length」或 400（模型不接受這些欄位），會先用同一個模型、不帶 max_tokens／reasoning 再試一次（時間允許時），才換備用模型。實測偶爾一次呼叫會卡約 5 分鐘、沒有錯誤；`UrlFetchApp` 沒有逾時設定，所以改成：這一輪過了 250 秒就不開始寫回覆草稿（信留著標籤，下次從頭處理），過了 300 秒 AI 失敗就不試備用模型。日報摘要主要模型花超過 200 秒才失敗，就直接寄原始數據。若 ⑤ 還是跳出「超過執行時間上限」，再按一次 ⑤：完成的信保留，沒完成的重試。
+- （以下是 OpenRouter 的情況；Gemini、OpenAI 的差異見「AI 服務」一節。）AI 呼叫都帶 `max_tokens`（`AI_MAX_TOKENS`：摘要 6000、判讀與回覆 4000，遠大於實際輸出）、`reasoning: { effort: 'none' }`（關掉思考）與 `provider: { sort: 'latency' }`（優先回應快的提供者）。推理模型的思考也算在 max_tokens 裡：實測上限 800 時，openrouter/free 挑到的推理模型把額度用在思考、回覆空白（finish_reason: length）。現在遇到「回覆空白＋length」或 400（模型不接受這些欄位），會先用同一個模型、不帶 max_tokens／reasoning 再試一次（時間允許時），才換備用模型。實測偶爾一次呼叫會卡約 5 分鐘、沒有錯誤；`UrlFetchApp` 沒有逾時設定，所以改成：這一輪過了 250 秒就不開始寫回覆草稿（信留著標籤，下次從頭處理），過了 300 秒 AI 失敗就不試備用模型。日報摘要主要模型花超過 200 秒才失敗，就直接寄原始數據。若 ⑤ 還是跳出「超過執行時間上限」，再按一次 ⑤：完成的信保留，沒完成的重試。
 - 秘書每次執行另有硬上限：約 270 秒後不再開始處理新的一串信（`SECRETARY_RUN_LIMIT_MS`），回頭檢查舊紀錄最多 min(120 秒, 剩下時間 − 90 秒保留給新信)。沒處理到的信標籤不動，下次再處理。順序是「建草稿 → 寫紀錄 → 換標籤」；萬一建好草稿後中斷，下次會補寫紀錄，不會建第二封草稿。
 - 繁體中文與占位字由程式再把關：回覆草稿、判讀結果的文字欄位與日報摘要經過 `toTraditional_`（只收一對一、不會誤改的常用簡體字，例如 谢→謝、们→們；后、系、干、面、里、台這類有歧義的字不換，「后续」這種詞才整個換）；對照表外的簡體字只記一行提醒、不擋下。回覆草稿再經過 `tidyPlaceholders_`：拿掉 { }、補上缺的】與」、署名欄一律由程式在信末加一行「（請填入你的署名）」。判讀失敗（未判讀）的紀錄筆記重新判讀後，檔名改成新的意圖（`renameFailedNote_`，撞名加 -2），試算表的「知識庫筆記」跟著改。
 - 客戶名稱由程式把關（`resolveCustomer_`、`canonicalCustomer_`）：AI 依提示詞從內文署名找「公司 聯絡人」；程式拿掉信箱、網址、引號，最多 40 個字；如果是你自己（帳號信箱、別名、你寄出的信的顯示名稱）就改看最後一行署名，再找不到就是「未署名客戶」。送給 AI 的寄件人只有顯示名稱，不含信箱；摘要、原因、主旨裡的信箱寫進筆記與試算表前會換成「（信箱已隱藏）」。同一位客戶的不同寫法（空白、全形半形、標點、結尾稱謂，或一個是另一個的開頭）會合併成比較長的那個名稱，之前的紀錄一起改；名稱開頭剛好一樣的不同客戶也會被合併，這是已知的取捨。
@@ -116,7 +132,7 @@
 
 發出「建立副本」連結前，請用一個**全新的個人 Gmail**（沒有用過 Apps Script、沒有用過 OpenRouter）從頭走一次，這些項目沒辦法在本機測：
 
-1. **清空範本的指令碼屬性**：範本 Sheet → 擴充功能 → Apps Script → 專案設定 → 指令碼屬性，刪掉 `OPENROUTER_API_KEY`、`AI_ENABLED`、`VAULT_ROOT_ID`、`VAULT_SYMBOL_FOLDER`、`REPORT_TO`、`OPENROUTER_MODEL`、`OPENROUTER_SECONDARY_MODEL`、`OPENROUTER_FALLBACK_MODEL`、`REPORT_TEMPLATE`、`REPORT_HOUR`（舊版留下的 `GEMINI_API_KEY`、`GEMINI_MODEL` 也一起刪）。副本會不會帶走這些值請以實測為準，先清空最保險，避免學員共用你的 key 和額度。
+1. **清空範本的指令碼屬性**：範本 Sheet → 擴充功能 → Apps Script → 專案設定 → 指令碼屬性，刪掉 `AI_API_KEY`、`OPENROUTER_API_KEY`、`AI_PROVIDER`、`AI_BASE_URL`、`AI_MODEL`、`AI_FALLBACK_MODEL`、`AI_ENABLED`、`VAULT_ROOT_ID`、`VAULT_SYMBOL_FOLDER`、`REPORT_TO`、`OPENROUTER_MODEL`、`OPENROUTER_SECONDARY_MODEL`、`OPENROUTER_FALLBACK_MODEL`、`REPORT_TEMPLATE`、`REPORT_HOUR`（舊版留下的 `GEMINI_API_KEY`、`GEMINI_MODEL` 也一起刪）。副本會不會帶走這些值請以實測為準，先清空最保險，避免學員共用你的 key 和額度。
 2. **刪掉範本的觸發器**（左側「觸發條件」），範本本身不要每天寄信。
 3. 全新帳號打開 `/copy` 連結 → 建立副本 → 選單出現。
 4. **① 一鍵設定**：授權畫面全部勾選；用新帳號建立的 key 測試成功；雲端硬碟出現 `FinLab-Vault`（確認 `drive` 權限可用）。

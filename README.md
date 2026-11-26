@@ -43,8 +43,8 @@ lab-assets/
   apps-script/                        Code.gs（選單、今日總覽）、Templates.gs（三種版面）、Vault.gs（知識庫）、Secretary.gs（秘書）、appsscript.json、步驟
   sheet-template/                     「數據」「報價表」分頁欄位與公式（「日報紀錄」「秘書紀錄」自動產生）
   prompts/                            龍蝦財經原版與各 Stage 的 prompt（README 有對照表）
-  obsidian-vault/                     範例 vault：首頁儀表板、範例日報、標的筆記、每日筆記範本、報價單草稿
-  secretary/sample-emails.md          秘書練習用的 3 封虛構客戶來信
+  obsidian-vault/                     範例 vault：首頁儀表板、範例日報、標的筆記（走勢圖）、秘書紀錄、客戶筆記、每日筆記與每週回顧範本
+  secretary/sample-emails.md          秘書練習用的 11 封虛構客戶來信（每封附預期的意圖、狀態、草稿）
 slides/
   handbook.html                       上課主檔：報紙格式滾動手冊（全場 5 段）
   obsidian.html                       特別報導：Markdown 知識庫與 Obsidian（為什麼不被軟體綁住）

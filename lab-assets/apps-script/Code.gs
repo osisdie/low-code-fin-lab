@@ -7,6 +7,7 @@
  *       → 加上秘書待辦（待確認草稿、需人工的信、昨天處理過的信），合併成一封「今日總覽」
  *       → 依你選的版面（Templates.gs）用你自己的 Gmail 寄給自己
  *       → 數字記一列到「日報紀錄」分頁；同一份日報另存成 Markdown 到雲端硬碟「FinLab-Vault/日報」
+ *       → 日報裡第一次出現的追蹤項目，自動在「FinLab-Vault/標的」建一篇筆記（Vault.gs）
  *
  * 安全：
  *   - 寄信用 MailApp，以「你自己的 Google 帳號」寄出，完全不需要密碼。
@@ -41,6 +42,12 @@ const AI_ENABLED_PROP = 'AI_ENABLED';                   // true／false（也接
 const AI_OFF_SUMMARY = 'AI 摘要已關閉，以下為原始數據。';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_KEYS_PAGE = 'https://openrouter.ai/settings/keys';
+// 每次 AI 回覆最多幾個 token（max_tokens）：限制回覆長度，避免卡很久。推理模型的「思考」也算在內，所以留了不少空間
+// （OpenRouter 文件：max_tokens 是回覆的上限，推理模型的思考 token 在多數提供者也算在內；查證日期 2026-11-26）
+const AI_MAX_TOKENS = { summary: 2500, triage: 800, reply: 1200, check: 1000 };
+// 請 OpenRouter 優先挑「回應快」的提供者（provider.sort：price／throughput／latency，查證日期 2026-11-26）；不支援的模型會忽略
+const AI_PROVIDER_SORT = 'latency';
+const AI_SUMMARY_DEADLINE_MS = 200000; // 日報摘要：主要模型花超過 200 秒才失敗，就不再試備用模型，直接寄原始數據
 // 每天幾點寄出的預設值（依 appsscript.json 的時區：Asia/Taipei）；想改時間不用改程式，設指令碼屬性 REPORT_HOUR 再點一次 ③
 const TRIGGER_HOUR = 7;
 const REPORT_HOUR_PROP = 'REPORT_HOUR';
@@ -181,7 +188,7 @@ function setupWizardSteps_() {
   // AI 關閉（key 留空或 AI_ENABLED=false）就跳過測試：這一步完全不呼叫 OpenRouter
   if (isAiEnabled_()) {
     try {
-      callAi_('請只回答：OK');
+      callAi_('請只回答：OK', { maxTokens: AI_MAX_TOKENS.check });
     } catch (err) {
       ui.alert('key 測試失敗', err.message + '\n\n處理好之後，再點一次「① 一鍵設定」。', ui.ButtonSet.OK);
       return;
@@ -189,8 +196,9 @@ function setupWizardSteps_() {
   }
 
   let root;
+  const upgrade = {};
   try {
-    root = setupVault_();
+    root = setupVault_(upgrade);
   } catch (err) {
     logError_('一鍵設定：建立知識庫資料夾', err);
     ui.alert('知識庫資料夾建立失敗',
@@ -206,6 +214,9 @@ function setupWizardSteps_() {
   ui.alert('設定完成 ✅',
     aiLine +
     '已在你的雲端硬碟建立資料夾「' + root.getName() + '」（Obsidian 知識庫，Stage 3 會用到；追蹤項目筆記在「' + vaultSymbolFolder_() + '」）。\n\n' +
+    (upgrade.upgraded.length ? '知識庫的起始檔已更新成新版（你沒改過的才換）：' + upgrade.upgraded.join('、') + '。\n\n' : '') +
+    (upgrade.sideBySide.length ? '⚠️ 這些檔案你改過，所以沒有覆蓋；新版另外存成：' + upgrade.sideBySide.join('、') +
+      '。請在 Obsidian 打開兩個檔案比較，把需要的部分複製到你的版本（或改用新版，再把舊檔刪掉、把新版改回原本的名稱）。\n\n' : '') +
     '下一步：選單「② 立即寄一封今日總覽」，到信箱看看。',
     ui.ButtonSet.OK);
 }
@@ -339,11 +350,32 @@ function runDailyPipeline_(opts) {
     logError_('日報紀錄', err); // 每日排程沒有對話框，記進「錯誤紀錄」分頁才看得到
   }
   try {
+    // 往前找最近一篇日報，今天的日報連過去；寫完再把那篇的「後一天」換成連到今天
+    ctx.prevDate = findPrevReportDate_(ctx.isoDate);
     writeVaultFile_('日報', ctx.isoDate + ' 財經日報.md', buildReportMarkdown_(ctx.isoDate, ctx.data, ctx.summary, ctx.secretary, ctx));
+    linkPrevReport_(ctx.prevDate, ctx.isoDate);
   } catch (err) {
     res.vaultError = err.message;
     console.warn('日報未存進知識庫：' + err.message);
     logError_('日報存知識庫', err);
+  }
+  if (!res.vaultError) {
+    // 標的筆記：第一次出現的項目自動建立；你自己寫過的內容不會被改。失敗不影響日報
+    try {
+      // 「日報紀錄」沒寫成功（或讀不到）時，走勢圖資料不完整：已經有的標的筆記不動，只建新的
+      let history = null;
+      if (!res.logError) {
+        try {
+          history = readDailyLogHistory_(SYMBOL_CHART_DAYS);
+        } catch (err) {
+          console.warn('讀不到「' + DAILY_LOG_SHEET + '」，標的筆記這次不更新走勢圖：' + err.message);
+        }
+      }
+      ensureSymbolNotes_(ctx.data.items, history || [], history === null);
+    } catch (err) {
+      console.warn('標的筆記沒有建立：' + err.message);
+      logError_('標的筆記', err);
+    }
   }
   return res;
 }
@@ -420,6 +452,26 @@ function appendDailyLog_(ctx) {
   // 「更新時間」存成文字，才會照 yyyy-MM-dd HH:mm:ss 顯示，不會被試算表改成別的日期格式
   sheet.getRange(target, header.indexOf('更新時間') + 1).setNumberFormat('@');
   sheet.getRange(target, 1, 1, values.length).setValues([values]);
+}
+
+/**
+ * 讀「日報紀錄」最近幾列（依日期由舊到新）：[{ date: 'yyyy-MM-dd', values: { USD_TWD: 32.5, USD_TWD_漲跌%: 0.3, … } }]。
+ * 標的筆記的走勢圖用（只畫最近 days 個日曆天，多讀一些列，中間停過幾天也夠）；空白（查無資料）的格子保留成空字串，由畫圖的程式略過。
+ */
+function readDailyLogHistory_(days) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(DAILY_LOG_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+  const header = data[0].map(function (h) { return String(h); });
+  return data.slice(1)
+    .filter(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(String(r[0])); })
+    .map(function (r) {
+      const values = {};
+      header.forEach(function (h, i) { if (i > 0) values[h] = r[i]; });
+      return { date: String(r[0]), values: values };
+    })
+    .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; })
+    .slice(-days * 2);
 }
 
 /** 一天一列：日期、更新時間與方式、各項數字與漲跌，以及秘書待辦數量（查無資料留空） */
@@ -625,7 +677,7 @@ function isAiEnabled_() {
 function buildAiSummary_(dateStr, data) {
   if (!isAiEnabled_()) return AI_OFF_SUMMARY;
   try {
-    const summary = ensureFxLines_(callAi_(buildPrompt_(dateStr, data)), data);
+    const summary = ensureFxLines_(callAi_(buildPrompt_(dateStr, data), { maxTokens: AI_MAX_TOKENS.summary, deadline: Date.now() + AI_SUMMARY_DEADLINE_MS }), data);
     const odd = checkSummaryNumbers_(summary, data);
     if (odd.length) {
       return '⚠️ 自動檢查：摘要裡有數字在原始數據找不到（' + odd.slice(0, 5).join('、') + (odd.length > 5 ? '…' : '') +
@@ -748,7 +800,9 @@ function checkSummaryNumbers_(summary, data) {
 
 /**
  * 呼叫 AI，回傳文字。先用主要模型，失敗就換備用模型再試一次；兩個都失敗時丟出中文說明（呼叫端決定怎麼退場）。
- * opts.json = true 時要求回傳 JSON（秘書判讀信件用）。
+ * opts.json = true 時要求回傳 JSON（秘書判讀信件用）；opts.maxTokens 是回覆長度上限（max_tokens）。
+ * opts.deadline（時間戳，毫秒）：過了這個時間就不再試下一個模型，直接丟出錯誤（err.outOfTime = true），
+ *   讓呼叫端乾淨退場（日報寄原始數據；秘書把信留到下次）。Apps Script 每次最多 6 分鐘，一次 AI 呼叫偶爾會卡好幾分鐘。
  * 安全：key 只放在 Authorization 標頭，錯誤訊息與紀錄都不會包含 key。
  */
 function callAi_(prompt, opts) {
@@ -760,7 +814,13 @@ function callAi_(prompt, opts) {
   }
   const models = aiModels_();
   const reasons = [];
+  let outOfTime = false;
   for (let i = 0; i < models.length; i++) {
+    if (opts.deadline && Date.now() > opts.deadline) {
+      reasons.push('時間不夠，' + (i === 0 ? '這次不呼叫 AI' : '沒有改用備用模型'));
+      outOfTime = true;
+      break;
+    }
     try {
       return callOpenRouterOnce_(key, models[i], prompt, opts);
     } catch (err) {
@@ -769,7 +829,9 @@ function callAi_(prompt, opts) {
       if (i < models.length - 1) console.warn('AI 模型「' + models[i] + '」失敗，改用備用模型：' + err.message);
     }
   }
-  throw new Error('AI 暫時無法使用。' + reasons.join('；'));
+  const err = new Error('AI 暫時無法使用。' + reasons.join('；'));
+  err.outOfTime = outOfTime;
+  throw err;
 }
 
 /** 要依序嘗試的模型：指令碼屬性可覆寫；重複的只試一次 */
@@ -785,7 +847,12 @@ function looksLikeOpenRouterKey_(key) {
 
 /** 呼叫一次指定模型；任何失敗都丟出學員看得懂的中文錯誤 */
 function callOpenRouterOnce_(key, model, prompt, opts) {
-  const payload = { model: model, messages: [{ role: 'user', content: prompt }] };
+  const payload = {
+    model: model,
+    messages: [{ role: 'user', content: prompt }],
+    max_tokens: opts.maxTokens || AI_MAX_TOKENS.check,
+    provider: { sort: AI_PROVIDER_SORT },
+  };
   if (opts.json) payload.response_format = { type: 'json_object' };
 
   let res;
@@ -889,7 +956,7 @@ function openRouterHttpError_(code, body, model) {
 
 /** 單獨測試 OpenRouter key 是否可用（不會印出 key） */
 function testAiKey() {
-  Logger.log(callAi_('請只回答：OK'));
+  Logger.log(callAi_('請只回答：OK', { maxTokens: AI_MAX_TOKENS.check }));
 }
 
 // ============ 排程 ============
@@ -1067,7 +1134,9 @@ function noteKey_(name) {
 /**
  * 日報 → Markdown。frontmatter 的數字全部直接取自 data（不經過 AI），
  * 查無資料的欄位留空，不補任何數字。
- * meta（可省略）提供 updatedIso 與 runBy，寫成 updated:（ISO 時間，+08:00）與 trigger:（每日排程／手動寄送／手動更新）。
+ * meta（可省略）提供 updatedIso 與 runBy，寫成 updated:（ISO 時間，+08:00）與 trigger:（每日排程／手動寄送／手動更新），
+ * 以及 prevDate（前一篇日報的日期，導覽列用；沒有就寫「沒有更早的日報」）。
+ * frontmatter 的欄位名稱不要改：日報總覽.base、標的筆記的「近期走勢」、每週回顧都靠它們。
  */
 function buildReportMarkdown_(isoDate, data, summary, secretary, meta) {
   const fm = ['---', '類型: 日報', '日期: ' + isoDate];
@@ -1084,14 +1153,19 @@ function buildReportMarkdown_(isoDate, data, summary, secretary, meta) {
 
   const rows = data.items.map(function (it) {
     // 表格裡的連結別名要寫成 \|，否則會被當成欄位分隔
-    const label = symbolWikiLink_(it);
-    const pct = it.changePct === null ? '' : (it.changePct >= 0 ? '📈 +' : '📉 ') + it.changePct + '%';
-    return '| ' + label + ' | ' + (it.price === null ? '查無資料' : it.price) + ' | ' + pct + ' | ' + it.source + ' |';
+    const label = symbolWikiLink_(it, true);
+    return '| ' + label + ' | ' + (it.price === null ? '查無資料' : it.price) + ' | ' + mdPct_(it.changePct) + ' | ' + it.source + ' |';
   });
 
   return fm.concat([
     '',
     '# ' + isoDate + ' 財經日報',
+    '',
+  ], reportNavMarkdown_(isoDate, meta && meta.prevDate), [
+    '',
+    '## 今日重點',
+    '',
+  ], highlightsMarkdown_(data, secretary), [
     '',
     '## AI 整理的摘要',
     '',
@@ -1101,21 +1175,85 @@ function buildReportMarkdown_(isoDate, data, summary, secretary, meta) {
     '',
     '| 項目 | 數字 | 漲跌 | 來源 |',
     '|---|---|---|---|',
-  ], rows, secretary ? ['', '## 秘書待辦', ''].concat(secretaryMarkdown_(secretary)) : [], [
+  ], rows, secretary ? ['', '## 秘書待辦', ''].concat(secretaryMarkdown_(secretary), secretaryNoteLinks_(secretary)) : [], [
     '',
     '> 本頁由 Apps Script 自動產生；數字來自資料表與公開端點，AI 只負責整理文字。僅供參考，不構成投資建議。',
     '',
   ]).join('\n');
 }
 
+/** 漲跌幅 → 「📈 +1.23%」／「📉 -0.45%」；查無資料回傳空字串 */
+function mdPct_(pct) {
+  return pct === null || pct === undefined ? '' : (pct >= 0 ? '📈 +' : '📉 ') + pct + '%';
+}
+
+/**
+ * 日報最上面的導覽列：前一天（往前 7 天內最近的一篇）｜今天的每日筆記｜後一天。
+ * 「後一天」先寫 NAV_NEXT_PENDING，明天的日報產生時才換成連結（linkPrevReport_），
+ * 這樣不會出現點了會建出空白檔的「還不存在的日報」連結。
+ */
+function reportNavMarkdown_(isoDate, prevDate) {
+  const prev = prevDate ? '[[日報/' + prevDate + ' 財經日報|← 前一天]]' : '← 前一天（沒有更早的日報）';
+  return [
+    '導覽：' + prev + '｜[[筆記/' + isoDate + '|📝 今天的筆記]]｜' + NAV_NEXT_PENDING,
+    '',
+    '> 📝 每日筆記請用左側欄「開啟今天的每日筆記」建立，才會套用範本；建好之後上面的連結就通了。',
+  ];
+}
+
+/**
+ * 「今日重點」：全部由程式依 data 計算，不經過 AI。
+ *   - 變動最大的 3 項：依漲跌幅絕對值排序（topMovers_，查無資料的不算；一樣大時照「數據」分頁的順序）
+ *   - 美股休市時寫「沿用 X 收盤數字」（X 是程式算的 usLastCloseDate）
+ *   - 查無資料幾項、秘書待辦數量
+ */
+function highlightsMarkdown_(data, secretary) {
+  const lines = ['> 由程式依下方「原始數據」計算，不經過 AI。', ''];
+  const movers = topMovers_(data.items, 3);
+  if (movers.length) {
+    lines.push('- 變動最大的 ' + movers.length + ' 項（依漲跌幅大小）：');
+    movers.forEach(function (it, i) {
+      lines.push('  ' + (i + 1) + '. ' + symbolWikiLink_(it, false) + '：' + it.price + '（' + mdPct_(it.changePct) + '）');
+    });
+  } else {
+    lines.push('- 變動最大的項目：今天沒有可以比較的漲跌資料。');
+  }
+  if (!data.usMarketOpen) lines.push('- 🇺🇸 美股休市（沿用 ' + data.usLastCloseDate + ' 收盤數字）');
+  const missing = data.items.filter(function (it) { return it.price === null; }).length;
+  if (missing) lines.push('- 查無資料：' + missing + ' 項（見下方原始數據）');
+  if (secretary) {
+    lines.push('- 秘書：待確認草稿 ' + secretary.drafts.length + ' 封、需人工 ' + secretary.failedCount + ' 封（見下方「秘書待辦」）');
+  }
+  return lines;
+}
+
+/** 日報 .md 專用：過去 24 小時的秘書紀錄筆記與報價單連結（信件版面不用，信裡不顯示 [[連結]]） */
+function secretaryNoteLinks_(sec) {
+  const withNote = sec.recent.concat(sec.quiet || []).filter(function (r) { return r.note; });
+  if (!withNote.length) return ['- 全部還沒處理完的信：[[秘書總覽.base|秘書總覽]]（「待我處理」）'];
+  const lines = ['- 秘書紀錄（點開看摘要與下一步）：'];
+  withNote.forEach(function (r) {
+    lines.push('  - [[秘書/' + r.note + '|' + mdCell_(r.intent + '｜' + readCustomer_(r.customer)) + ']]（' + r.status + '）' +
+      (r.quote ? '｜報價單：[[秘書/' + r.quote + '|草稿]]' : ''));
+  });
+  lines.push('- 全部還沒處理完的信：[[秘書總覽.base|秘書總覽]]（「待我處理」）');
+  return lines;
+}
+
 /** 秘書待辦 → Markdown 清單（日報 .md、「完整」版信件與純文字信共用） */
 function secretaryMarkdown_(sec) {
   const lines = ['- 待確認草稿：' + sec.drafts.length + ' 封（在 Gmail「草稿」）'];
-  sec.drafts.forEach(function (d) { lines.push('  - [ ] ' + d.subject + (d.checks ? '（' + d.checks + ' 處需人工確認）' : '')); });
+  sec.drafts.forEach(function (d) { lines.push('  - [ ] ' + mdInline_(redactEmails_(d.subject)) + (d.checks ? '（' + d.checks + ' 處需人工確認）' : '')); });
   lines.push('- 需人工處理的信：' + sec.failedCount + ' 封（Gmail 標籤「AI秘書/需人工」）');
   lines.push('- 過去 24 小時處理：' + sec.recent.length + ' 封');
   sec.recent.forEach(function (r) {
-    lines.push('  - ' + r.intent + '｜' + r.customer + '｜' + r.subject + (r.total === '' ? '' : '｜報價合計 ' + r.total));
+    lines.push('  - ' + r.intent + '｜' + mdInline_(readCustomer_(r.customer)) + '｜' + mdInline_(redactEmails_(r.subject)) + (r.total === '' ? '' : '｜報價合計 ' + r.total));
   });
+  // 沒有建立草稿的信（推銷「略過」、感謝「不需回覆」）也列出來：程式是依關鍵字判斷的，可能看錯，請掃一眼
+  const quiet = sec.quiet || [];
+  if (quiet.length) {
+    lines.push('- 略過／不需回覆：' + quiet.length + ' 封，請掃一眼（程式依關鍵字判斷，可能看錯）');
+    quiet.forEach(function (r) { lines.push('  - ' + r.status + '｜' + mdInline_(readCustomer_(r.customer)) + '｜' + mdInline_(redactEmails_(r.subject))); });
+  }
   return lines;
 }

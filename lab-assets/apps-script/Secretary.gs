@@ -160,6 +160,7 @@ const TRIAGE_PROMPT = [
   '4. 有任何不確定的地方，也寫進 needs_human。',
   '5. 只有 intent 是「詢價」時才填 items 與 unmatched；改期、客訴、其他一律填空陣列 []。',
   '6. customer 只看信件內文（通常在最後的署名），寫成「公司 聯絡人」；寄件人欄位可能是你自己或轉寄的人，不要拿來當客戶，也不要輸出任何信箱。',
+  '7. summary、needs_human 等文字欄位只用繁體中文（台灣用語），不可出現簡體字。',
   '',
   '【信件】',
   '寄件人：{from}',
@@ -180,10 +181,11 @@ const REPLY_PROMPT = [
   '2. 不要寫任何金額、價格、折扣或交期承諾。只有 hasQuote 是 true 時，才寫「報價明細請見信末」，明細由系統附上；hasQuote 是 false 時不要提到信末明細或附上報價。',
   '3. 不要答應退款、賠償或任何沒有依據的承諾；遇到這類要求，寫「我們確認後會盡快回覆您」。',
   '4. needs_human 裡的每一項，在信中相關位置標上【需人工確認：事項內容】，例如【需人工確認：折扣】；冒號後面一定要寫出具體事項，不可留空或只寫刪節號。needs_human 是空的、也沒有第 6、7 條的情況，就不要出現這個標記。',
-  '5. 不要編造公司政策、人名、電話或網址；署名寫「（請填入你的署名）」。',
+  '5. 不要編造公司政策、人名、電話或網址；不要寫署名，系統會在信末加上署名欄。',
   '6. 不要說任何事情「已經」做了：不要寫已確認、已完成、已審核、已收到款項、已安排、已啟動流程這類話；這些要由我親自確認，請寫成【需人工確認：要確認的事】。',
   '7. 不要提出或答應具體的日期、時間或可以的時段（例如「可於 11/13 上午安排」）；需要時間的地方寫【需人工確認：可以的時間】。',
-  '8. 只輸出信件內文，不要加任何說明或 Markdown 符號。',
+  '8. 只用繁體中文（台灣用語），不可出現簡體字。',
+  '9. 只輸出信件內文，不要加任何說明、Markdown 符號或大括號 { }。',
 ].join('\n');
 
 // ============ 選單 ============
@@ -389,7 +391,8 @@ function processSecretaryThread_(thread, labels, prices, result, started) {
 
     // 時間不夠就不開始寫回覆（這次 AI 呼叫可能很久）：什麼都還沒寫，信留著標籤，下次從頭處理
     if (Date.now() - runStart > SECRETARY_REPLY_START_LIMIT_MS) throw outOfTimeError_('時間不夠，沒有開始寫回覆草稿');
-    const reply = flagAmounts_(stripQuoteMentions_(fixEmptyChecks_(draftReply_(triage, deadline), triage.needs_human), triage.hasQuote, triage.intent));
+    const draftText = tidyPlaceholders_(toTraditional_(draftReply_(triage, deadline), '回覆草稿'));
+    const reply = flagAmounts_(stripQuoteMentions_(fixEmptyChecks_(draftText, triage.needs_human), triage.hasQuote, triage.intent));
     const refund = flagRefundPromise_(reply.text);
     const promise = flagPromises_(refund.text);
     const claim = flagClaims_(promise.text);
@@ -543,11 +546,14 @@ function triageEmail_(msg, prices, deadline) {
   // 客戶名稱由程式把關：不放信箱、不把你自己當客戶，找不到就是「未署名客戶」
   out.customer = resolveCustomer_(out.customer, msg, body);
   // 會寫進筆記與試算表的文字，信箱一律隱藏
-  out.summary = redactEmails_(out.summary);
-  out.deadline = redactEmails_(out.deadline);
-  out.needs_human = out.needs_human.map(redactEmails_);
-  out.items.forEach(function (it) { it.name = redactEmails_(it.name); });
-  out.unmatched = out.unmatched.map(redactEmails_);
+  // 會寫進筆記與試算表的文字：信箱一律隱藏、簡體字轉成繁體
+  const clean = function (x) { return toTraditional_(redactEmails_(x), '判讀結果'); };
+  out.summary = clean(out.summary);
+  out.deadline = clean(out.deadline);
+  out.needs_human = out.needs_human.map(clean);
+  out.items.forEach(function (it) { it.name = clean(it.name); });
+  out.unmatched = out.unmatched.map(clean);
+  out.customer = toTraditional_(out.customer, '客戶');
   return out;
 }
 
@@ -837,6 +843,65 @@ function buildQuoteMarkdown_(isoDate, triage, q, subject, permalink) {
     '## 需人工確認',
     '',
   ], checks.map(function (c) { return '- [ ] ' + c; }), ['']).join('\n');
+}
+
+// ============ 繁體中文與占位字整理（AI 寫的字由程式再把關）============
+
+// 簡體 → 繁體：只收「一對一、不會誤改」的常用字（商務信件常見）。
+// 刻意不收有歧義或本身也是繁體字的：后（皇后）、系、干、面、里、台、余、并、准、复、历、据、体、内、签、账、冲、只、才、范、松、谷、致、制、咨。
+const SIMPLIFIED_TO_TRADITIONAL = {
+  // 整個詞換（單獨的字有歧義，詞沒有）：「后」單獨可能是皇后，「后续」「之后」一定是後
+  '复印': '複印', '后续': '後續', '之后': '之後', '然后': '然後', '以后': '以後', '最后': '最後', '后来': '後來',
+  '谢': '謝', '们': '們', '这': '這', '为': '為', '时': '時', '会': '會', '请': '請', '问': '問', '题': '題', '联': '聯',
+  '价': '價', '单': '單', '报': '報', '务': '務', '发': '發', '个': '個', '对': '對', '关': '關', '应': '應', '项': '項',
+  '订': '訂', '认': '認', '确': '確', '资': '資', '讯': '訊', '费': '費', '预': '預', '约': '約', '议': '議', '处': '處',
+  '经': '經', '济': '濟', '汇': '匯', '币': '幣', '银': '銀', '涨': '漲', '数': '數', '还': '還', '进': '進', '运': '運',
+  '营': '營', '业': '業', '产': '產', '设': '設', '计': '計', '网': '網', '页': '頁', '让': '讓', '说': '說', '话': '話',
+  '带': '帶', '欢': '歡', '见': '見', '觉': '覺', '间': '間', '场': '場', '摄': '攝', '动': '動', '电': '電', '邮': '郵',
+  '东': '東', '车': '車', '门': '門', '开': '開', '买': '買', '卖': '賣', '实': '實', '际': '際', '现': '現', '样': '樣',
+  '过': '過', '没': '沒', '与': '與', '当': '當', '补': '補', '偿': '償', '赔': '賠', '额': '額', '优': '優', '节': '節',
+  '质': '質', '级': '級', '线': '線', '给': '給', '统': '統', '维': '維', '护': '護', '码': '碼', '写': '寫', '读': '讀',
+  '员': '員', '师': '師', '长': '長', '张': '張', '陈': '陳', '刘': '劉', '吴': '吳', '杨': '楊', '黄': '黃', '郑': '鄭',
+  '谁': '誰', '览': '覽', '记': '記', '录': '錄', '状': '狀', '态': '態', '证': '證', '难': '難', '环': '環', '销': '銷',
+  '购': '購', '货': '貨', '输': '輸', '尽': '盡', '决': '決', '协': '協', '谅': '諒', '误': '誤', '错': '錯', '帮': '幫',
+  '办': '辦', '递': '遞', '变': '變', '换': '換', '续': '續', '视': '視', '频': '頻', '辑': '輯', '诊': '診', '医': '醫',
+  '园': '園', '馆': '館', '书': '書', '图': '圖', '询': '詢', '户': '戶', '来': '來', '国': '國', '学': '學', '习': '習',
+  '财': '財', '兑': '兌', '贬': '貶', '盘': '盤', '债': '債', '较': '較', '稳': '穩', '势': '勢', '绿': '綠', '岛': '島',
+};
+// 對照表沒收、但只有簡體才會用的字：還出現就記一行提醒（不擋下）
+const SIMPLIFIED_ONLY_HINT = /[么叶号块坏层岁庄库归异蛮虽烦恼脑圣灵阶阴阳顾]/;
+
+/** 把對照表裡的簡體字換成繁體；繁體字原樣不動。還有對照表外的簡體字就記一行提醒，不擋下 */
+function toTraditional_(s, where) {
+  let t = String(s === null || s === undefined ? '' : s);
+  Object.keys(SIMPLIFIED_TO_TRADITIONAL).forEach(function (k) {
+    if (t.indexOf(k) !== -1) t = t.split(k).join(SIMPLIFIED_TO_TRADITIONAL[k]);
+  });
+  const left = t.match(SIMPLIFIED_ONLY_HINT);
+  if (left) console.warn('可能還有簡體字「' + left[0] + '」' + (where ? '（' + where + '）' : '') + '，寄出前請檢查');
+  return t;
+}
+
+const SIGNATURE_PLACEHOLDER = '（請填入你的署名）';
+
+/**
+ * 回覆草稿的占位字整理：
+ *   - 拿掉多出來的 { }（提示詞裡有 JSON，AI 偶爾會把括號抄進信裡，例如實測的「（請填入你的署名}」）
+ *   - 每一行的【與】、「與」數量不對時，在行尾補上缺的右括號
+ *   - AI 自己寫的署名占位字一律拿掉，由程式在信末加一行固定的（請填入你的署名）
+ */
+function tidyPlaceholders_(text) {
+  let t = String(text).replace(/[{}｛｝]/g, '');
+  t = t.replace(/[「『（(]*\s*請填入你的署名\s*[）)」』\]】]*/g, '');
+  t = t.split('\n').map(function (line) {
+    let l = line;
+    const opens = (l.match(/【/g) || []).length - (l.match(/】/g) || []).length;
+    for (let i = 0; i < opens; i++) l += '】';
+    const q = (l.match(/「/g) || []).length - (l.match(/」/g) || []).length;
+    for (let i = 0; i < q; i++) l += '」';
+    return l;
+  }).join('\n');
+  return t.replace(/\s+$/, '') + '\n' + SIGNATURE_PLACEHOLDER;
 }
 
 // ============ 客戶名稱（不放信箱、不把你自己當客戶、同一位客戶合併）============
@@ -1373,6 +1438,32 @@ function secretaryNoteTarget_(rec) {
   return { name: r.free ? last : last + '-' + Date.now(), parts: null };
 }
 
+/**
+ * 把「…-未判讀-…」的紀錄筆記改名成新的意圖：日期沿用原本檔名的日期，撞名就加 -2、-3…；回傳新名稱（不含 .md）。
+ * 只會被 saveSecretaryRecord_ 對「試算表記著、檔裡有這封信信件ID」的筆記呼叫，你自己建的檔不會被改名。
+ * 改名失敗就沿用舊名稱（內容照樣更新）。
+ */
+function renameFailedNote_(oldName, rec) {
+  const date = /^\d{4}-\d{2}-\d{2}/.test(oldName) ? oldName.slice(0, 10) : rec.isoDate;
+  const base = date + '-' + rec.intent + '-' + customerNoteKey_(rec.customer);
+  let name = '';
+  for (let i = 1; i <= 9 && !name; i++) {
+    const n = i === 1 ? base : base + '-' + i;
+    if (!readVaultFile_('秘書', n + '.md')) name = n;
+  }
+  if (!name) return oldName;
+  try {
+    const cur = readVaultFile_('秘書', oldName + '.md');
+    if (!cur) return oldName;
+    cur.file.setName(name + '.md');
+    console.log('秘書：紀錄筆記改名「' + oldName + '」→「' + name + '」');
+    return name;
+  } catch (err) {
+    logError_('秘書：紀錄筆記改名', err);
+    return oldName;
+  }
+}
+
 /** 寫紀錄：知識庫（客戶筆記＋紀錄筆記）與「秘書紀錄」分頁；知識庫寫不進去也照樣記試算表 */
 function saveSecretaryRecord_(rec) {
   let note = '';
@@ -1381,9 +1472,16 @@ function saveSecretaryRecord_(rec) {
     const target = secretaryNoteTarget_(rec);
     // 追蹤紀錄：沿用舊筆記裡的，再加上這一次
     rec.followups = (target.parts ? followupLines_(target.parts.block) : []).concat(rec.followup ? [followupLine_(rec.followup)] : []);
+    let before = target.parts ? target.parts.before : '';
+    if (target.parts && target.name.indexOf('-' + FAILED_INTENT + '-') !== -1 && rec.intent !== FAILED_INTENT) {
+      // 之前判讀失敗（檔名是 …-未判讀-…）、這次判讀出意圖：檔名改成新的意圖（撞名就加 -2、-3）
+      target.name = renameFailedNote_(target.name, rec);
+      // 標題還是程式當初寫的「未判讀｜…」才跟著換；你改過的標題不動
+      before = before.replace(new RegExp('\\n# ' + FAILED_INTENT + '｜[^\\n]*'), '\n# ' + mdInline_(rec.intent + '｜' + rec.customer));
+    }
     const content = target.parts
       // 沿用舊筆記：frontmatter 只改程式負責的欄位，標題、你加的欄位、「我的備註」都保留
-      ? setFrontmatterKeys_(target.parts.before, secretaryNoteKeys_(rec)) + GEN_START + '\n' + secretaryNoteBlock_(rec) + GEN_END + target.parts.after
+      ? setFrontmatterKeys_(before, secretaryNoteKeys_(rec)) + GEN_START + '\n' + secretaryNoteBlock_(rec) + GEN_END + target.parts.after
       : secretaryNoteContent_(rec);
     writeVaultFile_('秘書', target.name + '.md', content);
     note = target.name;

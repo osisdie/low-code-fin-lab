@@ -677,7 +677,7 @@ function isAiEnabled_() {
 function buildAiSummary_(dateStr, data) {
   if (!isAiEnabled_()) return AI_OFF_SUMMARY;
   try {
-    const summary = ensureFxLines_(callAi_(buildPrompt_(dateStr, data), { maxTokens: AI_MAX_TOKENS.summary, deadline: Date.now() + AI_SUMMARY_DEADLINE_MS }), data);
+    const summary = ensureFxLines_(toTraditional_(callAi_(buildPrompt_(dateStr, data), { maxTokens: AI_MAX_TOKENS.summary, deadline: Date.now() + AI_SUMMARY_DEADLINE_MS }), '日報摘要'), data);
     const odd = checkSummaryNumbers_(summary, data);
     if (odd.length) {
       return '⚠️ 自動檢查：摘要裡有數字在原始數據找不到（' + odd.slice(0, 5).join('、') + (odd.length > 5 ? '…' : '') +

@@ -180,7 +180,7 @@
     <div class="card">
       <div class="tags"><span class="pill pur">內建就夠</span></div>
       <h3>不裝社群外掛也能做儀表板</h3>
-      <div class="desc">核心外掛 <b>Bases</b> 把每篇日報的 frontmatter 排成一張表；<b>每日筆記＋範本</b>一鍵帶出當天日報；<b>關聯圖</b>看標的出現在哪幾天。</div>
+      <div class="desc">核心外掛 <b>Bases</b> 把每篇日報的 frontmatter 排成一張表；標的筆記的<b>走勢圖</b>用內建的 Mermaid 畫；<b>每日筆記＋範本</b>、<b>關聯圖</b>也都是內建的。</div>
       <div class="impact">少裝外掛＝少一份資安疑慮</div>
     </div>
     <div class="card">
@@ -197,14 +197,14 @@
     <li>到 <a href="https://obsidian.md" target="_blank" rel="noopener">obsidian.md</a> 下載安裝；同時安裝「Google 雲端硬碟電腦版」並登入同一個 Google 帳號。</li>
     <li>在雲端硬碟電腦版把 <code>FinLab-Vault</code> 設成「可離線使用」（或用鏡像模式），確保檔案真的在電腦上。</li>
     <li>Obsidian →「開啟資料夾作為 vault」→ 選 <code>我的雲端硬碟/FinLab-Vault</code>。</li>
-    <li>打開 <code>首頁</code>：上方是最近日報的表格，下方是待確認的報價單草稿。</li>
-    <li>點左側欄「開啟今天的每日筆記」，在「我的觀察」寫一兩句自己的看法——這段是你寫的，不是 AI 寫的。</li>
+    <li>打開 <code>首頁</code>：最上面是「待我處理的信」（Stage 4 之後才有內容），下面是最近日報的表格。</li>
+    <li>點一篇日報，再點原始數據裡的項目（例如 USD/TWD），看 <code>標的/</code> 筆記的走勢圖。第一次跳出「Display Mermaid diagrams in this vault?」按 <b>Allow</b>（內建功能，不是外掛）；只有 1 天資料時先不畫圖。</li>
   </ol>
   <div class="shots">
-    <figure class="shot"><img src="../docs/student/img/stage3-01-home.png" alt="Obsidian 首頁：最近日報表格與待確認報價單" loading="lazy"><figcaption><b>首頁</b>：Bases 表格自動列出最近日報的數字與報價單狀態。</figcaption></figure>
+    <figure class="shot"><img src="../docs/student/img/stage3-01-home.png" alt="Obsidian 首頁：最近日報表格與待我處理的信" loading="lazy"><figcaption><b>首頁</b>：Bases 表格自動列出最近日報的數字，以及還要你處理的信。</figcaption></figure>
     <figure class="shot"><img src="../docs/student/img/stage3-02-daily-report.png" alt="日報頁面上方的 Properties（frontmatter 數字）" loading="lazy"><figcaption><b>一篇日報</b>：上方 Properties 就是程式寫入的數字，下面才是 AI 摘要。</figcaption></figure>
-    <figure class="shot"><img src="../docs/student/img/stage3-03-daily-note.png" alt="每日筆記自動嵌入當天日報" loading="lazy"><figcaption><b>每日筆記</b>：範本自動嵌入當天日報，你只要寫觀察與待辦。</figcaption></figure>
-    <figure class="shot"><img src="../docs/student/img/stage3-04-graph.png" alt="關聯圖：日報與各標的之間的連結" loading="lazy"><figcaption><b>關聯圖</b>：日報用 <code>[[連結]]</code> 指向標的筆記，自動長成一張網。</figcaption></figure>
+    <figure class="shot"><img src="../docs/student/img/stage3-03-daily-note.png" alt="每日筆記自動嵌入當天日報" loading="lazy"><figcaption><b>每日筆記</b>（課後選讀）：範本自動帶出當天的今日重點，你只要寫觀察與待辦。</figcaption></figure>
+    <figure class="shot"><img src="../docs/student/img/stage3-04-graph.png" alt="關聯圖：日報與各標的之間的連結" loading="lazy"><figcaption><b>關聯圖</b>（課後選讀）：日報用 <code>[[連結]]</code> 指向標的筆記，自動長成一張網。</figcaption></figure>
   </div>
   <p class="week-note" style="margin-top:10px">截圖為範例 vault，數字與客戶皆為虛構。</p>
 
@@ -225,7 +225,7 @@
     </div>
     <div class="card">
       <h3>範例 vault 的結構</h3>
-      <div class="desc"><code>首頁.md</code>、<code>日報/</code>、<code>秘書/</code>、<code>筆記/</code>、<code>標的/</code>、<code>範本/</code>，加上 <code>.obsidian/</code> 裡三個小設定檔（每日筆記資料夾、範本資料夾、關聯圖篩選）。</div>
+      <div class="desc"><code>首頁.md</code>、兩個儀表板（<code>日報總覽.base</code>、<code>秘書總覽.base</code>）、<code>日報/</code>、<code>標的/</code>（每個項目一篇，有走勢圖）、<code>秘書/</code>（每封信一篇紀錄＋報價單草稿）、<code>客戶/</code>、<code>筆記/</code>、<code>範本/</code>（每日筆記、每週回顧），加上 <code>.obsidian/</code> 裡三個小設定檔。</div>
       <div class="impact">完整說明：<span class="mono">lab-assets/obsidian-vault/README.md</span></div>
     </div>
   </div>
@@ -242,9 +242,9 @@
     </div>
     <div class="card">
       <div class="tags"><span class="pill soon">已有訂閱</span></div>
-      <h3>Claude Panel（需 Claude 訂閱）</h3>
-      <div class="desc">已經有 Claude 訂閱的人，可以用 Claude Panel 外掛，搭配「只根據 vault 內容回答、找不到就說沒有」的規則檔。</div>
-      <div class="impact">做法可參考姊妹課程 low-code-rag-lab 的 <span class="mono">obsidian/</span></div>
+      <h3>Claudian（需 Claude 訂閱）</h3>
+      <div class="desc">已經有 Claude 訂閱的人，可以試社群外掛 Claudian（只能在電腦版用）。它能讀寫 vault 的檔案，權限比一般外掛大，只建議在自己的電腦上用。</div>
+      <div class="impact">社群外掛都要先關閉「限制模式」才能安裝；以官網為準</div>
     </div>
     <div class="card">
       <div class="tags"><span class="pill red">規則不變</span></div>

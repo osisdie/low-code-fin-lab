@@ -68,7 +68,7 @@
 <text x="296" y="832" font-size="15" font-weight="500" fill="#5c5a50" text-anchor="start">Google Sheet · Apps Script · Gmail · OpenRouter（可不開）</text>
 <rect x="980" y="776" width="156" height="46" rx="23" fill="#c8341e"/>
 <g transform="translate(998 799)"><circle r="10" fill="none" stroke="#fff" stroke-width="3"/><polyline points="0,-5 0,0 4,3" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></g>
-<text x="1066" y="806" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">約 60 分鐘</text>
+<text x="1066" y="806" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">約 65 分鐘</text>
 <line x1="186" y1="856" x2="1136" y2="856" stroke="#e4dfd2" stroke-width="1.5"/>
 <rect x="186" y="868" width="64" height="28" rx="6" fill="#20211c"/>
 <text x="218" y="888" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你點</text>
@@ -87,14 +87,14 @@
 <text x="296" y="1040" font-size="15" font-weight="500" fill="#5c5a50" text-anchor="start">Google 雲端硬碟電腦版 · Obsidian</text>
 <rect x="980" y="984" width="156" height="46" rx="23" fill="#2c7a4b"/>
 <g transform="translate(998 1007)"><circle r="10" fill="none" stroke="#fff" stroke-width="3"/><polyline points="0,-5 0,0 4,3" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></g>
-<text x="1066" y="1014" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">約 45 分鐘</text>
+<text x="1066" y="1014" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">約 40 分鐘</text>
 <line x1="186" y1="1064" x2="1136" y2="1064" stroke="#e4dfd2" stroke-width="1.5"/>
 <rect x="186" y="1076" width="64" height="28" rx="6" fill="#20211c"/>
 <text x="218" y="1096" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你點</text>
-<text x="266" y="1096" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">同步 FinLab-Vault 到電腦 → Obsidian「開啟資料夾作為 vault」</text>
+<text x="266" y="1096" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">同步 FinLab-Vault 到電腦 → Obsidian 開啟 → 看首頁、日報、標的</text>
 <rect x="186" y="1116" width="64" height="28" rx="6" fill="#2c7a4b"/>
 <text x="218" y="1136" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你得到</text>
-<text x="266" y="1136" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">首頁儀表板、每日筆記、關聯圖；全是純文字，換軟體也打得開</text>
+<text x="266" y="1136" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">首頁儀表板、標的走勢圖、「待我處理」的信；全是純文字</text>
 <rect x="150" y="1168" width="1010" height="190" rx="14" fill="#ffffff" stroke="#e4dfd2" stroke-width="2"/>
 <rect x="150" y="1168" width="10" height="190" rx="5" fill="#1f5f99"/>
 <circle cx="96" cy="1230" r="34" fill="#1f5f99" stroke="#faf7f0" stroke-width="6"/>
@@ -110,7 +110,7 @@
 <line x1="186" y1="1272" x2="1136" y2="1272" stroke="#e4dfd2" stroke-width="1.5"/>
 <rect x="186" y="1284" width="64" height="28" rx="6" fill="#20211c"/>
 <text x="218" y="1304" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你點</text>
-<text x="266" y="1304" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">把信貼上「AI秘書」標籤 → ⑤ 秘書：處理（想自動就按 ⑥）</text>
+<text x="266" y="1304" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">寄 3 封練習信給自己 → 貼「AI秘書」標籤 → 按一次 ⑤（每封約 1 分鐘）</text>
 <rect x="186" y="1324" width="64" height="28" rx="6" fill="#2c7a4b"/>
 <text x="218" y="1344" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">你得到</text>
 <text x="266" y="1344" font-size="19" font-weight="500" fill="#20211c" text-anchor="start">Gmail 回覆「草稿」＋報價單草稿；金額來自報價表，寄出由你決定</text>

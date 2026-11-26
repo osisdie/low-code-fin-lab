@@ -46,9 +46,9 @@ function symbolWikiLink_(it, inTable) {
   return '[[' + vaultSymbolFolder_() + '/' + it.key + (inTable === false ? '|' : '\\|') + it.name + ']]';
 }
 
-/** frontmatter 的文字值一律加雙引號；值裡的雙引號換成單引號（避免弄壞 YAML） */
+/** frontmatter 的文字值一律加雙引號；反斜線要跳脫、雙引號換成單引號、換行換成空白（避免弄壞 YAML） */
 function yamlStr_(s) {
-  return '"' + String(s === null || s === undefined ? '' : s).replace(/"/g, "'").replace(/[\r\n]+/g, ' ') + '"';
+  return '"' + String(s === null || s === undefined ? '' : s).replace(/\\/g, '\\\\').replace(/"/g, "'").replace(/[\r\n]+/g, ' ') + '"';
 }
 
 // 起始檔案清單：path 是相對於 FinLab-Vault 的路徑（可含子資料夾），content 是檔案內容；只在檔案不存在時建立
@@ -426,9 +426,10 @@ function splitGenerated_(content) {
  *   - 檔案不存在、或是 0 位元組／只有空白（在 Obsidian 點連結建出來的空白筆記）→ 寫入完整內容 full
  *   - 檔案有 GEN_START／GEN_END → 只換掉中間那一段（block），前後原樣保留；內容一樣就不寫（省雲端硬碟寫入）
  *   - 檔案有內容但沒有那兩行（使用者自己寫的筆記）→ 不動
+ * createOnly 為 true 時（例如今天的「日報紀錄」沒寫成功、走勢圖資料不完整）：只建新檔、補空白檔，已經有內容的一律不動。
  * 回傳 'created'｜'filled'｜'updated'｜'unchanged'｜'skipped'
  */
-function upsertGeneratedNote_(subFolder, fileName, full, block) {
+function upsertGeneratedNote_(subFolder, fileName, full, block, createOnly) {
   const cur = readVaultFile_(subFolder, fileName);
   if (!cur) {
     writeVaultFile_(subFolder, fileName, full);
@@ -438,6 +439,7 @@ function upsertGeneratedNote_(subFolder, fileName, full, block) {
     cur.file.setContent(full);
     return 'filled';
   }
+  if (createOnly) return 'skipped';
   const parts = splitGenerated_(cur.content);
   if (!parts) return 'skipped';
   if (parts.block === block) return 'unchanged';
@@ -558,7 +560,7 @@ function chartDateLabels_(dates) {
 function symbolNoteBlock_(it, category, history) {
   const q = function (k) { return '"' + k + '"'; };
   return [
-    '> 這篇筆記是程式在「' + it.name + '」第一次出現在日報時自動建立的。分類由程式依代碼判斷，不對可以直接改上方的 `分類`。',
+    '> 這篇筆記是程式在「' + mdInline_(it.name) + '」第一次出現在日報時自動建立的。分類由程式依代碼判斷，不對可以直接改上方的 `分類`。',
     '',
     '## 這些欄位是什麼意思',
     '',
@@ -611,7 +613,7 @@ function symbolNoteContent_(it, history) {
     '分類: ' + category,
     '資料來源: ' + yamlStr_(symbolSourceLabel_(it)),
     '---',
-    '# ' + it.name,
+    '# ' + mdInline_(it.name),
     '',
     GEN_START,
     block + GEN_END,
@@ -634,9 +636,10 @@ function symbolNoteContent_(it, history) {
  * 日報裡每個有 key 的項目，都確保有一篇 標的/<key>.md（資料夾跟著 VAULT_SYMBOL_FOLDER）。
  * history 是「日報紀錄」最近幾天的數字（畫走勢圖用，可省略）。
  * 已經有你自己寫的內容就不動；只換掉程式產生的那一段（走勢圖每天會變，所以每天寫一次；內容一樣就不寫）。
+ * createOnly 為 true（今天的「日報紀錄」沒寫成功）：已經存在的標的筆記不動，免得走勢圖被換成「資料不足」；只建新的。
  * 回傳 { created, updated, skipped } 數量。
  */
-function ensureSymbolNotes_(items, history) {
+function ensureSymbolNotes_(items, history, createOnly) {
   const folder = vaultSymbolFolder_();
   const count = { created: 0, updated: 0, skipped: 0 };
   const seen = {};
@@ -644,7 +647,7 @@ function ensureSymbolNotes_(items, history) {
     if (!it.key || seen[it.key]) return; // 同名（同 key）的項目只建一篇
     seen[it.key] = true;
     const note = symbolNoteContent_(it, history);
-    const r = upsertGeneratedNote_(folder, it.key + '.md', note.full, note.block);
+    const r = upsertGeneratedNote_(folder, it.key + '.md', note.full, note.block, createOnly);
     if (r === 'created' || r === 'filled') count.created++;
     else if (r === 'updated') count.updated++;
     else if (r === 'skipped') count.skipped++;
@@ -699,7 +702,7 @@ function ensureCustomerNote_(customer) {
     '類型: 客戶',
     '客戶: ' + yamlStr_(name),
     '---',
-    '# ' + name,
+    '# ' + mdInline_(name),
     '',
     GEN_START,
     block + GEN_END,

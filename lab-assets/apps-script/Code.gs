@@ -352,7 +352,16 @@ function runDailyPipeline_(opts) {
   if (!res.vaultError) {
     // 標的筆記：第一次出現的項目自動建立；你自己寫過的內容不會被改。失敗不影響日報
     try {
-      ensureSymbolNotes_(ctx.data.items, res.logError ? [] : readDailyLogHistory_(SYMBOL_CHART_DAYS));
+      // 「日報紀錄」沒寫成功（或讀不到）時，走勢圖資料不完整：已經有的標的筆記不動，只建新的
+      let history = null;
+      if (!res.logError) {
+        try {
+          history = readDailyLogHistory_(SYMBOL_CHART_DAYS);
+        } catch (err) {
+          console.warn('讀不到「' + DAILY_LOG_SHEET + '」，標的筆記這次不更新走勢圖：' + err.message);
+        }
+      }
+      ensureSymbolNotes_(ctx.data.items, history || [], history === null);
     } catch (err) {
       console.warn('標的筆記沒有建立：' + err.message);
       logError_('標的筆記', err);
@@ -1195,7 +1204,7 @@ function highlightsMarkdown_(data, secretary) {
 
 /** 日報 .md 專用：過去 24 小時的秘書紀錄筆記與報價單連結（信件版面不用，信裡不顯示 [[連結]]） */
 function secretaryNoteLinks_(sec) {
-  const withNote = sec.recent.filter(function (r) { return r.note; });
+  const withNote = sec.recent.concat(sec.quiet || []).filter(function (r) { return r.note; });
   if (!withNote.length) return ['- 全部還沒處理完的信：[[秘書總覽.base|秘書總覽]]（「待我處理」）'];
   const lines = ['- 秘書紀錄（點開看摘要與下一步）：'];
   withNote.forEach(function (r) {
@@ -1215,5 +1224,11 @@ function secretaryMarkdown_(sec) {
   sec.recent.forEach(function (r) {
     lines.push('  - ' + r.intent + '｜' + r.customer + '｜' + r.subject + (r.total === '' ? '' : '｜報價合計 ' + r.total));
   });
+  // 沒有建立草稿的信（推銷「略過」、感謝「不需回覆」）也列出來：程式是依關鍵字判斷的，可能看錯，請掃一眼
+  const quiet = sec.quiet || [];
+  if (quiet.length) {
+    lines.push('- 略過／不需回覆：' + quiet.length + ' 封，請掃一眼（程式依關鍵字判斷，可能看錯）');
+    quiet.forEach(function (r) { lines.push('  - ' + r.status + '｜' + r.customer + '｜' + r.subject); });
+  }
   return lines;
 }

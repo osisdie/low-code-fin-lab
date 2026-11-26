@@ -52,7 +52,7 @@ function compactHtml_(ctx) {
   sec.drafts.slice(0, 3).forEach(function (d) {
     html += '<div style="font-size:15px;padding:4px 0">☐ ' + esc_(d.subject) + '</div>';
   });
-  return html;
+  return html + quietHtml_(sec);
 }
 
 /** 完整：AI 摘要全文＋秘書清單＋原始數據 */
@@ -89,6 +89,7 @@ function tableHtml_(ctx) {
       ? table_(['主旨', '需人工確認'], sec.drafts.map(function (d) { return [esc_(d.subject), d.checks + ' 處']; }), [false, true])
       : '<p style="font-size:14px">目前沒有待確認的草稿 👍</p>';
     if (sec.failedCount) html += '<p style="font-size:14px;color:' + UP_COLOR + '">⚠️ 有 ' + sec.failedCount + ' 封信貼著「AI秘書/需人工」，請直接處理。</p>';
+    html += quietHtml_(sec);
     html += h2_('過去 24 小時處理的信');
     html += sec.recent.length
       ? table_(['客戶', '意圖', '報價合計'], sec.recent.map(function (r) {
@@ -174,6 +175,14 @@ function table_(head, rows, alignRight) {
 function bigNumber_(n, label) {
   return '<td style="padding:8px 4px"><div style="font-size:28px;font-weight:700;color:' + (n ? UP_COLOR : MUTED_COLOR) + '">' + n + '</div>' +
     '<div style="font-size:12px;color:' + MUTED_COLOR + '">' + esc_(label) + '</div></td>';
+}
+
+/** 精簡／表格版：沒有建立草稿的信（略過、不需回覆）提醒一行，列出主旨；完整版已經在 secretaryMarkdown_ 裡 */
+function quietHtml_(sec) {
+  const quiet = (sec && sec.quiet) || [];
+  if (!quiet.length) return '';
+  return '<p style="font-size:13px;color:' + MUTED_COLOR + '">略過／不需回覆 ' + quiet.length + ' 封，請掃一眼（程式依關鍵字判斷，可能看錯）：' +
+    quiet.map(function (r) { return esc_(r.status + '｜' + r.subject); }).join('；') + '</p>';
 }
 
 /** 還沒用秘書（或讀不到秘書待辦）時顯示的一行 */

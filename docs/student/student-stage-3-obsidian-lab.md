@@ -21,9 +21,10 @@ Apps Script 每天寫一篇 .md ──►  Google 雲端硬碟 FinLab-Vault/  �
 ## A. 把 FinLab-Vault 同步到電腦
 1. 下載安裝 [Google 雲端硬碟電腦版](https://www.google.com/drive/download/)，用 Stage 2 的同一個帳號登入。
 2. 找到 `FinLab-Vault`：Windows 通常是 `G:\我的雲端硬碟\FinLab-Vault`；Mac 在 Finder 側欄「Google Drive → 我的雲端硬碟」。
-3. 在 `FinLab-Vault` 上按右鍵 → **離線存取 → 可離線使用**（Obsidian 才讀得到完整檔案）。
+3. 在**檔案總管（不是瀏覽器）**的 `FinLab-Vault` 上按右鍵 → **離線存取 → 可離線使用**（Obsidian 才讀得到完整檔案）。Windows 11 要先點「**顯示更多選項**」（或按 Shift＋F10）才看得到；Mac 在 Finder 按右鍵。
 
 - ✅ **檢核點**：在電腦上打開 `FinLab-Vault/日報`，看得到 Stage 2 那篇 `.md`。
+- 看到 `FinLab-Vault (1)`、`FinLab-Vault (2)`：代表雲端硬碟裡有好幾個同名資料夾（例如重建過副本又按了 ①）。到 [drive.google.com](https://drive.google.com) 看「修改日期」最新的那個才是現在用的，把舊的改名（例如加上「-舊」）就不會混淆；改名不影響程式。
 - 不能安裝雲端硬碟電腦版（例如公司電腦）：到 [drive.google.com](https://drive.google.com) 對 `FinLab-Vault` 按右鍵 → **下載**（zip）→ 解壓縮。缺點是不會自動更新。
 
 ## B. 用 Obsidian 打開

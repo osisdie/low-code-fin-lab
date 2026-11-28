@@ -6,6 +6,7 @@
  *       → 交給 OpenRouter 的免費 AI 模型整理成繁體中文日報（數字只來自資料，LLM 不負責查數字）
  *       → 加上秘書待辦（待確認草稿、需人工的信、昨天處理過的信），合併成一封「今日總覽」
  *       → 依你選的版面（Templates.gs）用你自己的 Gmail 寄給自己
+ *       → 這次實際用到的數字與來源寫回「數據」分頁右邊（F–I 每列、K–O 內建的黃金／美債／BTC；A–E 公式不動）
  *       → 數字記一列到「日報紀錄」分頁；同一份日報另存成 Markdown 到雲端硬碟「FinLab-Vault/日報」
  *       → 日報裡第一次出現的追蹤項目，自動在「FinLab-Vault/標的」建一篇筆記（Vault.gs）
  *
@@ -389,6 +390,13 @@ function runDailyPipeline_(opts) {
   // 以下失敗都不影響寄信（例如還沒跑過一鍵設定）；原因記在執行紀錄，選單也會顯示
   const res = { ctx: ctx, logError: '', vaultError: '' };
   try {
+    // 「數據」分頁 F–I、K–O：寫回這次實際用到的數字與來源（A–E 你的公式不動）
+    writeSheetStatus_(ctx);
+  } catch (err) {
+    console.warn('未寫回「' + SHEET_NAME + '」的實際數字：' + err.message);
+    logError_('寫回數據分頁', err);
+  }
+  try {
     appendDailyLog_(ctx);
   } catch (err) {
     res.logError = err.message;
@@ -430,11 +438,13 @@ function runDailyPipeline_(opts) {
 function buildBriefingContext_(runBy) {
   const now = new Date();
   const dateStr = Utilities.formatDate(now, REPORT_TIMEZONE, 'yyyy年M月d日') + '（' + zhWeekday_(now) + '）';
+  const sheetItems = readSheetItems_();                             // 「數據」分頁的項目（順序同表格）
+  const builtinItems = [].concat(fetchYahooItems_(), fetchBitcoin_()); // 程式內建：黃金、美債、BTC
   const data = {
     date: dateStr,
     usMarketOpen: isUsWeekday_(now),
     usLastCloseDate: lastUsCloseDate_(now), // 美股休市時摘要要寫的「沿用哪天收盤」，由程式算，不讓 AI 推算
-    items: [].concat(readSheetItems_(), fetchYahooItems_(), fetchBitcoin_()),
+    items: sheetItems.concat(builtinItems),
   };
   // 摘要的【匯率】段落要逐一列出這幾組（免費模型常常只挑一組寫）
   data.fxPairs = data.items.filter(isFxItem_).map(function (it) { return it.name; });
@@ -456,6 +466,9 @@ function buildBriefingContext_(runBy) {
     updatedIso: Utilities.formatDate(now, REPORT_TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX"),
     runBy: runBy || '',
     data: data,
+    // 寫回「數據」分頁 F–I／K–O 用（writeSheetStatus_）；不會送給 AI
+    sheetItems: sheetItems,
+    builtinItems: builtinItems,
     summary: summary,
     secretary: secretary,
     sheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl(),
@@ -1157,6 +1170,129 @@ function removeTriggers_(handlerName) {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === handlerName) ScriptApp.deleteTrigger(t);
   });
+}
+
+// ============ 寫回「數據」分頁（程式實際用到的數字）============
+// A–E 是你的公式，程式只讀不寫。每次 ②／↻／每日排程跑完，程式把「實際用到的數字」寫在右邊（淺灰底）：
+//   F–I：每一列項目實際用的現價、漲跌%、資料來源、更新時間（例如 TYO:3350 的 C 欄空白，F 欄會有 Yahoo 3350.T 的現價）
+//   K–O：程式內建項目（黃金、美債10年、BTC），不在 A–E 表格裡，所以另外列一塊；readSheetItems_ 只看 A–E，不會把它當項目
+// F1 或 K1 的標題不是程式的（你自己在那裡放了東西），就整塊跳過、不覆蓋，只在執行紀錄留一行提醒。
+const SHEET_STATUS_COL = 6;   // F 欄
+const SHEET_STATUS_HEADERS = ['實際使用的現價', '實際使用的漲跌%', '資料來源', '更新時間'];
+const SHEET_BUILTIN_COL = 11; // K 欄
+const SHEET_BUILTIN_HEADERS = ['程式內建項目（自動更新，請勿手改）', '實際使用的現價', '實際使用的漲跌%', '資料來源', '更新時間'];
+const SHEET_AUTO_BG = '#f3f3f3';                         // 程式負責的區塊用淺灰底
+const SHEET_PRICE_FORMAT = '#,##0.00##';                 // 2～4 位小數（匯率 4 位）
+const SHEET_PCT_FORMAT = '+0.00"%";-0.00"%";0.00"%"';    // 數值和信裡一樣是「1.23」代表 1.23%
+const SHEET_AUTO_NOTE = '程式每次寄信、更新或每日排程時自動填入，請勿手改（改了下次也會被蓋掉）。\n' +
+  '你的公式在 A–E 欄，程式不會動；C 欄空白（例如日股 TYO:3350）時，這裡顯示程式改用備援抓到的數字。';
+
+/** 把這次實際用到的數字寫回「數據」分頁的 F–I 與 K–O；出錯會往外丟，由 runDailyPipeline_ 接住記錄 */
+function writeSheetStatus_(ctx) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error('找不到分頁「' + SHEET_NAME + '」');
+  const stamp = ctx.updatedAt;
+  const needCols = SHEET_BUILTIN_COL + SHEET_BUILTIN_HEADERS.length - 1;
+  if (sheet.getMaxColumns() < needCols) sheet.insertColumnsAfter(sheet.getMaxColumns(), needCols - sheet.getMaxColumns());
+  const lastRow = Math.max(sheet.getLastRow(), 1);
+
+  // F–I：每一列項目
+  writeAutoBlock_(sheet, SHEET_STATUS_COL, SHEET_STATUS_HEADERS, lastRow, function () {
+    const ab = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, 2).getValues() : [];
+    return sheetStatusRows_(ab, ctx.sheetItems || [], stamp);
+  });
+  // K–O：程式內建項目
+  writeAutoBlock_(sheet, SHEET_BUILTIN_COL, SHEET_BUILTIN_HEADERS, lastRow, function () {
+    return builtinStatusRows_(ctx.builtinItems || [], stamp);
+  });
+}
+
+/**
+ * 寫一塊程式負責的欄位：先確認標題列是程式的（或整塊空白），才清掉舊值、寫新值、套格式。
+ * 不是程式的就跳過（回傳 false）。buildRows 回傳第 2 列起的資料，每列欄數同 headers。
+ */
+function writeAutoBlock_(sheet, col, headers, lastRow, buildRows) {
+  const width = headers.length;
+  const header = sheet.getRange(1, col, 1, width).getValues()[0];
+  const below = lastRow > 1 ? sheet.getRange(2, col, lastRow - 1, width).getValues() : [];
+  const state = autoBlockState_(header, headers, below);
+  if (state === 'foreign') {
+    console.warn('「' + SHEET_NAME + '」' + colLetter_(col) + '–' + colLetter_(col + width - 1) +
+      ' 欄已經有你自己的內容（標題不是「' + headers[0] + '」…），這次不寫入實際數字，避免蓋掉。');
+    return false;
+  }
+  const rows = buildRows();
+  const height = Math.max(lastRow, rows.length + 1);
+  sheet.getRange(1, col, 1, width).setValues([headers]).setFontWeight('bold').setNote(SHEET_AUTO_NOTE);
+  if (height > 1) sheet.getRange(2, col, height - 1, width).clearContent();
+  const priceIdx = headers.indexOf('實際使用的現價');
+  if (rows.length) {
+    const body = sheet.getRange(2, col, rows.length, width);
+    // 文字欄先設成純文字格式，更新時間不會被轉成日期、來源也不會被當公式
+    headers.forEach(function (h, i) {
+      const r = sheet.getRange(2, col + i, rows.length, 1);
+      if (i === priceIdx) r.setNumberFormat(SHEET_PRICE_FORMAT);
+      else if (i === priceIdx + 1) r.setNumberFormat(SHEET_PCT_FORMAT);
+      else r.setNumberFormat('@');
+    });
+    body.setValues(rows);
+  }
+  sheet.getRange(1, col, rows.length + 1, width).setBackground(SHEET_AUTO_BG);
+  return true;
+}
+
+/**
+ * 標題列是不是程式的：'ours'（標題完全相同）、'empty'（標題和下面都空白，可以建立）、'foreign'（有你自己的內容）。
+ * header、expected 是一列；below 是標題下面那幾列（二維陣列）。
+ */
+function autoBlockState_(header, expected, below) {
+  const blank = function (v) { return v === '' || v === null || v === undefined; };
+  if (expected.every(function (h, i) { return String(header[i]).trim() === h; })) return 'ours';
+  if (header.every(blank) && below.every(function (r) { return r.every(blank); })) return 'empty';
+  return 'foreign';
+}
+
+/**
+ * F–I 的內容：ab 是「數據」第 2 列起的 A、B 欄；items 是 readSheetItems_ 的結果（A 欄有字的列，順序相同）。
+ * 依順序一列對一個項目，名稱和代碼都對得上才寫（跑到一半有人改表格就留空，不會寫錯列）。A 欄空白的列留空。
+ */
+function sheetStatusRows_(ab, items, stamp) {
+  let k = 0;
+  return ab.map(function (r) {
+    if (!r[0]) return ['', '', '', ''];
+    const it = items[k++];
+    if (!it || String(it.name) !== String(r[0]) || String(it.symbol) !== String(r[1])) return ['', '', '', ''];
+    return statusCells_(it, stamp);
+  });
+}
+
+/** K–O 的內容：每個內建項目一列（名稱＋F–I 同樣的四欄） */
+function builtinStatusRows_(items, stamp) {
+  return items.map(function (it) { return [String(it.name)].concat(statusCells_(it, stamp)); });
+}
+
+/** 一個項目的「現價、漲跌%、來源、更新時間」；查不到的數字留空，來源寫「查無資料」 */
+function statusCells_(it, stamp) {
+  return [
+    isNum_(it.price) ? it.price : '',
+    isNum_(it.changePct) ? it.changePct : '',
+    statusSource_(it),
+    stamp,
+  ];
+}
+
+/** 來源欄：現價查不到時一定以「查無資料」開頭（例如代碼格式不對、沒有備援時，來源原本只寫 Google Finance） */
+function statusSource_(it) {
+  const src = String(it.source || '');
+  if (isNum_(it.price)) return src;
+  return /查無資料|無法取得/.test(src) ? src : '查無資料' + (src ? '（' + src + '）' : '');
+}
+
+/** 欄號 → 英文字母（1 → A） */
+function colLetter_(n) {
+  let s = '';
+  for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s;
+  return s;
 }
 
 // ============ 錯誤處理（學員看得懂的訊息）============

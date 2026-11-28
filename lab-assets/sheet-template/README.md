@@ -22,6 +22,26 @@
 | C | 現價 | `=IFERROR(GOOGLEFINANCE(B2,"price"),GOOGLEFINANCE(B2))`（匯率不接受 `"price"`，改用不帶屬性的寫法；股票不受影響） |
 | D | 前一收盤 | `=IFERROR(GOOGLEFINANCE(B2,"closeyest"),"")` |
 | E | 漲跌幅 % | `=IFERROR(GOOGLEFINANCE(B2,"changepct"),"")` |
+| F–I | （程式自動填）實際使用的現價／漲跌%／資料來源／更新時間 | 淺灰底，見下方「程式自動填的欄位」；不用自己建 |
+| K–O | （程式自動填）程式內建項目：黃金、美債10年、BTC | 淺灰底，同上 |
+
+### 程式自動填的欄位
+A–E 是你的公式，程式**只讀不寫**。每次按「② 立即寄一封」「↻ 只更新數字與知識庫」或每日排程跑完，程式把**這次實際用到的數字**寫回「數據」分頁右邊，讓你在表格上就看得到信裡的數字是從哪裡來的：
+
+| 欄 | 標題 | 內容 |
+|----|------|------|
+| F | 實際使用的現價 | 信裡用的現價（C 欄有數字就是 C 欄；C 欄空白時是程式改用 Yahoo 備援抓到的） |
+| G | 實際使用的漲跌% | 信裡用的漲跌幅，`1.23` 代表 +1.23% |
+| H | 資料來源 | 例如「Google Finance」「Google Finance；漲跌由 Yahoo USDTWD=X 補」「Yahoo Finance 3350.T（Google Finance 查無資料，改用備援）」；兩邊都抓不到就寫「查無資料…」 |
+| I | 更新時間 | 這次抓數字的時間（台灣時間），和信件頁尾、「日報紀錄」的更新時間相同 |
+
+K–O 是一塊獨立的小表，標題「程式內建項目（自動更新，請勿手改）」：黃金（`GC=F`）、美債10年（`^TNX`）、BTC 三項不在 A–E 表格裡，由程式另外抓，所以列在這裡（名稱、現價、漲跌%、來源、更新時間）。程式讀項目只看 A–E，這一塊不會被當成追蹤項目。
+
+- **不用自己建標題**：第一次執行時程式自動建立；之後每次整塊覆寫，同一天重跑也只是換成最新的數字。
+- **不要手改這兩塊**：改了下次也會被蓋掉。想換追蹤項目，改 A、B 欄（見上表）。
+- **C 欄空白不用緊張**：例如日股 `TYO:3350`，`GOOGLEFINANCE` 抓不到，C、D、E 會空白，這是正常的；實際用的數字會出現在 F、G 欄，H 欄寫「Yahoo Finance 3350.T（Google Finance 查無資料，改用備援）」。C 欄請保留公式，不要手動填數字。
+- **F–I 或 K–O 原本就有你自己的東西**（標題不是程式的、或沒有標題但下面有字）：程式會**整塊跳過、不覆蓋**，只在執行紀錄留一行提醒。想讓程式寫，就把那幾欄的內容搬走（或整欄刪掉），下次執行會自動建立。
+- 寫回失敗（例如分頁被保護）不會影響寄信，原因會記在「錯誤紀錄」分頁（在做什麼：「寫回數據分頁」）。
 
 ## 為什麼 D、E 欄不用歷史資料公式
 `GOOGLEFINANCE(代碼,"close",開始日,結束日)` 這類**歷史資料**只能在試算表畫面上看，Google 規定 Apps Script 讀到的會是 `#N/A`（引用它的儲存格也一樣）。所以 D、E 欄一律用即時屬性 `closeyest`（前一收盤）與 `changepct`（今日漲跌幅 %），程式才讀得到。
@@ -50,8 +70,8 @@
 - **台股加權指數**：舊代碼 `INDEXTPE:TAIEX` 在彩排時顯示 `#N/A`，Google 財經網站上也已找不到這個代碼。Google 財經的加權指數頁面是 [`IX0001:TPE`](https://www.google.com/finance/quote/IX0001:TPE)，試算表寫成 `TPE:IX0001`（多個中文教學也用這個寫法）。指數類通常沒有 `closeyest`／`changepct` 以外的財務欄位，這是正常的。
 - **匯率**：`CURRENCY:USDTWD`、`CURRENCY:JPYTWD`、`CURRENCY:EURUSD` 是一般通用的寫法，Google 財經網站上也有 [USD-TWD](https://www.google.com/finance/quote/USD-TWD)、[JPY-TWD](https://www.google.com/finance/quote/JPY-TWD)、[EUR-USD](https://www.google.com/finance/quote/EUR-USD) 頁面；2026-11-26 實測確認：`GOOGLEFINANCE` 不接受 `CURRENCY:` 代碼加上 `"price"` 屬性（會出現 `#N/A`，錯誤說明是 `parameter 2 value is invalid for the symbol specified`），不帶屬性的 `=GOOGLEFINANCE("CURRENCY:USDTWD")` 才出得來現價。所以 C 欄公式寫成 `=IFERROR(GOOGLEFINANCE(B2,"price"),GOOGLEFINANCE(B2))`：股票照樣用 `"price"`，匯率改用不帶屬性的寫法，C 欄就有數字。匯率的 D、E 欄（`closeyest`／`changepct`）還是拿不到、會是空白，**這是正常的**，漲跌幅由程式向 Yahoo 補（見下方「程式備援」）。另外請注意代碼中間**不能有斜線**（`USD/TWD` 一定 `#N/A`），也不要多空白。
 - **程式備援**：`Code.gs` 讀到匯率或加權指數**有現價、沒有漲跌**時，保留 Google 的現價，只向 Yahoo Finance（`USDTWD=X`／`JPYTWD=X`／`EURUSD=X`、`^TWII`）補前一收盤與漲跌，來源欄寫「Google Finance；漲跌由 Yahoo … 補」。C 欄是 `#N/A`（例如還沒改公式的舊副本）時，現價和漲跌都改抓 Yahoo，來源欄寫「Google Finance 查無資料，改用備援」。其他代碼可加在 `Code.gs` 的 `YAHOO_FALLBACK`。Yahoo 端點是非官方的，備援也失敗時一樣寫「查無資料」，不會亂補數字。
-- **日股、港股與台股個股（2026-11-28 實測）**：日股 `TYO:3350`（Metaplanet）在 `GOOGLEFINANCE` 可能什麼都抓不到（C、D、E 欄空白），Yahoo 的 `3350.T` 則查得到。程式會自動把有交易所前綴的代碼換成 Yahoo 代碼去補：`TYO:3350` → `3350.T`、`TPE:2330`／`TPE:0050`／`TPE:00878` → `2330.TW` 等、`TWO:6488` → `6488.TWO`、`HKG:700` → `0700.HK`，不用另外設定。這時試算表 C 欄仍是空白，但信裡和「日報紀錄」會有數字，來源欄寫「Yahoo Finance 3350.T（Google Finance 查無資料，改用備援）」。只有 Google 缺資料時才會去 Yahoo 補，已經抓得到的代碼不受影響。
-> 黃金、美債殖利率、BTC 不在 Sheet 內：由 `Code.gs` 另外抓取（Google Finance 沒有現貨黃金）。
+- **日股、港股與台股個股（2026-11-28 實測）**：日股 `TYO:3350`（Metaplanet）在 `GOOGLEFINANCE` 可能什麼都抓不到（C、D、E 欄空白），Yahoo 的 `3350.T` 則查得到。程式會自動把有交易所前綴的代碼換成 Yahoo 代碼去補：`TYO:3350` → `3350.T`、`TPE:2330`／`TPE:0050`／`TPE:00878` → `2330.TW` 等、`TWO:6488` → `6488.TWO`、`HKG:700` → `0700.HK`，不用另外設定。這時試算表 C 欄仍是空白（請保留公式），但信裡、「日報紀錄」與「數據」分頁的 F、G 欄會有數字，來源（H 欄）寫「Yahoo Finance 3350.T（Google Finance 查無資料，改用備援）」。只有 Google 缺資料時才會去 Yahoo 補，已經抓得到的代碼不受影響。
+> 黃金、美債殖利率、BTC 不在 A–E 表格裡：由 `Code.gs` 另外抓取（Google Finance 沒有現貨黃金），每次執行後列在「數據」分頁的 K–O 欄（見上方「程式自動填的欄位」）。
 > `GOOGLEFINANCE` 資料可能延遲約 20 分鐘，且只能在 Sheet 儲存格中使用，不能在 Apps Script 內直接呼叫。
 
 ## A 欄名稱會變成知識庫的欄位名稱

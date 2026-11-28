@@ -111,7 +111,8 @@ const YAHOO_ITEMS = [
 ];
 
 // 「數據」分頁某列缺現價（#N/A）或缺漲跌時，改用 Yahoo Finance 補抓（失敗就維持「查無資料」）
-// 匯率（CURRENCY:USDTWD 這種）會自動換成 Yahoo 的 USDTWD=X，不用列在這裡
+// 匯率（CURRENCY:USDTWD 這種）會自動換成 Yahoo 的 USDTWD=X；日股 TYO:3350、台股 TPE:2330／TWO:6488、港股 HKG:700
+// 也會自動換成 3350.T、2330.TW、6488.TWO、0700.HK（見 yahooSymbolFor_），不用列在這裡；這裡的設定優先
 // 為什麼匯率要補：GOOGLEFINANCE 不接受 CURRENCY: 代碼加 "price" 屬性（2026-11-26 實測，錯誤訊息是
 // parameter 2 value is invalid for the symbol specified），closeyest／changepct 也拿不到。範本 C 欄用
 // =IFERROR(GOOGLEFINANCE(B2,"price"),GOOGLEFINANCE(B2)) 讓匯率也有現價；漲跌則由下面的 sheetFallback_ 向 Yahoo 補。
@@ -563,11 +564,21 @@ function readSheetItems_() {
     });
 }
 
-/** 這一列對應的 Yahoo 代碼：匯率 CURRENCY:USDTWD → USDTWD=X，其他查 YAHOO_FALLBACK；沒有對應就回傳空字串 */
+/**
+ * 這一列對應的 Yahoo 代碼；沒有對應就回傳空字串。先查 YAHOO_FALLBACK（例如 TPE:IX0001 → ^TWII），再依格式自動換：
+ *   CURRENCY:USDTWD → USDTWD=X；TYO:3350 → 3350.T（日股）；TPE:2330、TPE:0050、TPE:00878 → 2330.TW（台股上市，含 ETF）；
+ *   TWO:6488 → 6488.TWO（上櫃）；HKG:700 → 0700.HK（港股補 0 到 4 位）。格式不對的代碼不換，避免抓錯股票。
+ */
 function yahooSymbolFor_(symbol) {
   const sym = String(symbol).trim().toUpperCase();
-  const fx = sym.match(/^CURRENCY:([A-Z]{3})([A-Z]{3})$/);
-  return fx ? fx[1] + fx[2] + '=X' : (YAHOO_FALLBACK[sym] || '');
+  if (YAHOO_FALLBACK[sym]) return YAHOO_FALLBACK[sym];
+  let m = sym.match(/^CURRENCY:([A-Z]{3})([A-Z]{3})$/);
+  if (m) return m[1] + m[2] + '=X';
+  if ((m = sym.match(/^TYO:(\d{4})$/))) return m[1] + '.T';
+  if ((m = sym.match(/^TPE:(\d{4,6})$/))) return m[1] + '.TW';
+  if ((m = sym.match(/^TWO:(\d{4,6})$/))) return m[1] + '.TWO';
+  if ((m = sym.match(/^HKG:0*([1-9]\d{0,4})$/))) return (m[1].length < 4 ? ('000' + m[1]).slice(-4) : m[1]) + '.HK';
+  return '';
 }
 
 /**
